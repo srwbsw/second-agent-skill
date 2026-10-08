@@ -1,6 +1,6 @@
 {
   "name": "second-agent-skill",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "scripts": {
     "prepare": "husky",
     "lint": "node test/safety.test.js && node test/shell-quote.test.js && node test/env-guard.test.js && node test/spawn.test.js && node test/answer.test.js && node test/agent.test.js && node test/locate.test.js && node test/host-parity.test.js",

@@ -1,6 +1,6 @@
 {
   "name": "second-agent-skill",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "Multi-engine second agent — delegate code reviews, second opinions, or engineering tasks (write tests, fix bugs, refactor) to Gemini, opencode, Codex, Claude Code, GitHub Copilot, Qwen, Kilo, Antigravity (agy), Command Code (cmd), or Cursor.",
   "author": {
     "name": "Sirawit Bongsuwan",
