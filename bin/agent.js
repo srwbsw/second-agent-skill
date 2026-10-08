@@ -899,6 +899,15 @@ async function main() {
     // sawEnvelope is never even read, don't pay for unbounded memory.
     strictEnvelope: true,
   });
+  const codexModelNote = engines.codexModelUnavailableNote(
+    engine,
+    model,
+    result
+  );
+  if (codexModelNote) {
+    if (logStream) logStream.write(codexModelNote);
+    process.stderr.write(`agent.js: ${codexModelNote.replace(/^# /, '')}`);
+  }
   const dur = ((Date.now() - started) / 1000).toFixed(1);
 
   // Wait for the stream to settle before reading the log back for
