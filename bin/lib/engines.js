@@ -271,6 +271,25 @@ function buildEngineCmd({
   }
 }
 
+// Detect Codex rejecting a pinned -m/--model (stderr is folded into
+// result.tailText by run.js). Returns null when this is not that case.
+function codexModelUnavailableNote(engine, model, result) {
+  if (engine !== 'codex' || !model || result.error || result.killedByTimeout)
+    return null;
+  if ((result.status ?? 0) === 0) return null;
+  const text = result.tailText || '';
+  const looksLikeRejection =
+    /(?:unknown|invalid|unsupported)\s+model\b/i.test(text) ||
+    /\bmodel\b[^\n]{0,80}(?:not\s+found|not\s+available|unavailable)/i.test(
+      text
+    );
+  if (!looksLikeRejection) return null;
+  return (
+    `# codex model unavailable: '${model}' was rejected by this Codex install/account. ` +
+    'This invocation will keep the original engine exit code; retry with bare --engine=codex to use the Codex CLI default model.\n'
+  );
+}
+
 module.exports = {
   INSTALL_HINTS,
   whichCmd,
@@ -278,4 +297,5 @@ module.exports = {
   SAFETY_FLAGS,
   safetyFor,
   buildEngineCmd,
+  codexModelUnavailableNote,
 };

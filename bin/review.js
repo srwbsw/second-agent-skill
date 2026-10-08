@@ -584,24 +584,6 @@ function resolveLogPath() {
 // lifecycle, signal-name mapping) live in ./lib/run. SAFETY_FLAGS/
 // safetyFor/buildEngineCmd live in ./lib/engines.
 
-function isCodexModelAvailabilityFailure(result) {
-  if (engine !== 'codex' || !model || result.error || result.killedByTimeout)
-    return false;
-  if ((result.status ?? 0) === 0) return false;
-  // `tailText` is the rolling tail of BOTH stdout and stderr (recordBytes is
-  // fed from each stream in wireStreams), so Codex's stderr model-rejection
-  // line is captured here even though a normal review body goes to stdout.
-  // Bound the second alternative's gap to keep it from matching unrelated
-  // review prose that merely happens to mention an unavailable model.
-  const text = result.tailText || '';
-  return (
-    /(?:unknown|invalid|unsupported)\s+model\b/i.test(text) ||
-    /\bmodel\b[^\n]{0,80}(?:not\s+found|not\s+available|unavailable)/i.test(
-      text
-    )
-  );
-}
-
 // ANSWER_START_RE/ANSWER_END_RE/extractLastAnswer live in ./lib/envelope.
 // writeStdoutSync lives in ./lib/run.
 
@@ -717,12 +699,14 @@ async function main() {
     heartbeatSec,
     started,
   });
-  if (isCodexModelAvailabilityFailure(result)) {
-    const note =
-      `# codex model unavailable: '${model}' was rejected by this Codex install/account. ` +
-      'This invocation will keep the original engine exit code; retry with bare --engine=codex to use the Codex CLI default model.\n';
-    if (logStream) logStream.write(note);
-    process.stderr.write(`review.js: ${note.replace(/^# /, '')}`);
+  const codexModelNote = engines.codexModelUnavailableNote(
+    engine,
+    model,
+    result
+  );
+  if (codexModelNote) {
+    if (logStream) logStream.write(codexModelNote);
+    process.stderr.write(`review.js: ${codexModelNote.replace(/^# /, '')}`);
   }
   const dur = ((Date.now() - started) / 1000).toFixed(1);
 

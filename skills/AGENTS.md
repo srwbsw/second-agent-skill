@@ -166,6 +166,26 @@ Also fall through to "$REVIEW_SCRIPT" when:
 ```
 <!-- END native-shortcut -->
 
+## Model and retry policy — canonical snippet
+
+Applies to `review.js`, `agent.js`, and native subagent delegation. `second-agent/SKILL.md` (under Execution contract) and the host adapters embed this block verbatim — edit it here, never per-file.
+
+<!-- BEGIN model-policy -->
+```
+Model binding (review.js, agent.js, and native subagent delegation):
+
+- If the user named a model (`--engine=<name>:<model>`, or stated a model in the request), keep that binding for the run. On failure (non-zero exit, exit 3, timeout 124, quota/context errors, combined-prompt size limit, or engine stderr about an unavailable model), STOP. Summarize what failed using the LOG FILE tail, stderr, and the SECOND_OPINION_RESULT / SECOND_AGENT_RESULT JSON. Do NOT automatically retry, drop the `:model` suffix, pick a different model from a list, switch engines, change scope flags, or change native subagent model — unless the user explicitly chooses one of those next steps.
+
+- If the user did not name a model, use bare `--engine=<name>` so the spawned CLI uses its configured default. Do NOT invent or guess model IDs (especially Codex). Use `list.js`, `agy models`, `--list-models`, etc. only when helping the user choose upfront — never to silently substitute after a failure.
+
+- Native subagent path: when the user named a model or `--engine-arg=`, use review.js (see native-shortcut fall-through). When using a subagent without a user-specified model, the host session default is fine; do not swap to a different subagent model after a failure without asking.
+
+- After a failure, offer options and wait for the user: retry the same command unchanged; name a different model; switch engine; for prompt-size limits, narrow the diff or discuss `--no-embed` — do not apply these without confirmation.
+
+review.js / agent.js may append a codex-specific log note when a pinned codex model is rejected; that is a hint for the user, not permission for the harness to re-run with a different model.
+```
+<!-- END model-policy -->
+
 ## Golden path — canonical snippet (small-model refactor)
 
 The single copy-paste "locate → run → read the answer" recipe `second-agent/SKILL.md` leads with; it is canonical, embedded verbatim, and enforced by `test/locate.test.js` — edit it here, never per-file.

@@ -1951,6 +1951,37 @@ function sleepMsSync(ms) {
   );
 }
 
+// ─── Test: codex unavailable pinned model preserves failure (agent.js) ───
+{
+  const logPath = path.join(TMP, 'agent-codex-model-unavail.log');
+  const r = spawnAgent(
+    [
+      '--engine=codex:gpt-5.4-mini',
+      '--cwd=' + process.cwd(),
+      '--unrestricted',
+      `--log=${logPath}`,
+      PROMPT_MARKER,
+    ],
+    { env: { FAKE_BEHAVIOR: 'model-unavailable' } }
+  );
+  let log = '';
+  try {
+    log = fs.readFileSync(logPath, 'utf8');
+  } catch {
+    /* */
+  }
+  const ok =
+    r.status === 2 &&
+    /model 'gpt-5\.4-mini' not available/.test(log) &&
+    /codex model unavailable/.test(log) &&
+    /bare --engine=codex/.test(log);
+  record(
+    'agent.js: unavailable pinned codex model preserves failure with hint',
+    ok,
+    `status=${r.status} log=${log.slice(-400)}`
+  );
+}
+
 // ─── Cleanup ────────────────────────────────────────────────────────────────
 rmrf(TMP);
 

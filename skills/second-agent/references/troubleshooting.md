@@ -71,6 +71,8 @@ Workflow: run the command (no `| tail`, no `| head`), read the `ANSWER FILE:` pa
 
 `0` success. `124` timeout. `3` = the engine exited cleanly but produced no usable output (zero bytes — often a transient upstream provider outage, or a missing envelope when wrapped) — treat as "no answer," not success. In fusion mode, each slot's exit code is reported in that slot's entry in the result JSON's `slots` array (see `fusion.md`).
 
+On any failure (including exit `3`, timeouts, non-zero engine exit, or `review.js`/`agent.js` usage exit `1` such as combined-prompt size over limit), the host harness must follow the canonical **model and retry policy** in `skills/AGENTS.md` (`<!-- BEGIN model-policy -->`): stop, report from the log and `SECOND_OPINION_RESULT` / `SECOND_AGENT_RESULT`, and do not change engine, model, or scope until the user chooses a next step. Runners never auto-retry with a different model; a codex log note about an unavailable pinned model is only a user-facing hint.
+
 ## Secrets handling (details)
 
 `review.js` excludes `.env`-style secret files by default: it refuses `--file=.env`, skips untracked `.env` files from `--diff=unstaged`, and redacts `.env` hunks from diffs — matching `.env`, `.env.*`, `*.env`, and exempting filenames containing `example`, `sample`, or `template`. It also appends a prompt reminder not to open env files, for engines running `--no-embed` or otherwise self-reading in a sandbox. This is enforced in the runner itself, not just documentation. Pass `--include-secrets` only when the user explicitly wants a real `.env` file reviewed. `agent.js` applies the exact same guard.

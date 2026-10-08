@@ -27,6 +27,7 @@
  *   <!-- BEGIN locate-agent -->     ```bash …PATH-first agent.js discovery… ```         <!-- END locate-agent -->
  *   <!-- BEGIN task-golden-path --> ```bash …locate→run --unrestricted→read recipe… ``` <!-- END task-golden-path -->
  *   <!-- BEGIN task-template -->   ``` …compact default task prompt skeleton… ```       <!-- END task-template -->
+ *   <!-- BEGIN model-policy -->    ``` …never auto-switch model/engine… ```          <!-- END model-policy -->
  * These are embedded by `second-agent/SKILL.md`'s `## Task mode` section and
  * by the three host adapters below (`.opencode/command/second-agent.md`,
  * `.cursor/rules/second-agent.mdc`, `commands/second-agent.toml`), which also
@@ -90,6 +91,9 @@ const STALE = [
   // Old tilde-glob discovery block. The canonical snippet uses "$HOME"/.claude,
   // so a literal ~/.claude printf only survives if an old block was left behind.
   "printf '%s\\n' ~/.claude/plugins/cache",
+  '`opencode` requires a model',
+  'retry or pick another engine',
+  'retry or switch engines',
 ];
 
 // Every <engine>/SKILL.md (each dir under skills/ that has one).
@@ -569,6 +573,78 @@ for (const file of hostAdapters) {
     Boolean(nativeShortcutBlock) && content.includes(nativeShortcutBlock),
     nativeShortcutBlock === null
       ? 'native-shortcut block missing from skills/AGENTS.md'
+      : 'not embedded verbatim'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Canonical model-policy block
+// ---------------------------------------------------------------------------
+
+const MODEL_POLICY_MARKER = 'model-policy';
+
+const modelPolicyRegion = extractRegion(agents, MODEL_POLICY_MARKER);
+const modelPolicyBlock = extractFenced(agents, MODEL_POLICY_MARKER);
+
+record(
+  `AGENTS.md: defines ${MODEL_POLICY_MARKER} block (<!-- BEGIN ${MODEL_POLICY_MARKER} -->)`,
+  modelPolicyBlock !== null,
+  `no ${MODEL_POLICY_MARKER} block in skills/AGENTS.md`
+);
+if (modelPolicyBlock !== null) {
+  record('model-policy block: non-empty', modelPolicyBlock.trim().length > 0);
+  record(
+    'model-policy block: single fenced block',
+    fenceCount(modelPolicyRegion) === 2,
+    `fences=${fenceCount(modelPolicyRegion)}`
+  );
+  record(
+    'model-policy block: forbids automatic model change',
+    modelPolicyBlock.includes('Do NOT automatically retry')
+  );
+  record(
+    'model-policy block: mentions SECOND_OPINION_RESULT',
+    modelPolicyBlock.includes('SECOND_OPINION_RESULT')
+  );
+  record(
+    'model-policy block: bare --engine default',
+    modelPolicyBlock.includes('bare `--engine=<name>`')
+  );
+}
+
+if (!fs.existsSync(hubSkill)) {
+  record(
+    'second-agent/SKILL.md: embeds canonical model-policy block',
+    false,
+    'hub skill missing'
+  );
+} else {
+  const hubForModelPolicy = fs.readFileSync(hubSkill, 'utf8');
+  record(
+    'second-agent/SKILL.md: embeds canonical model-policy block',
+    Boolean(modelPolicyBlock) && hubForModelPolicy.includes(modelPolicyBlock),
+    modelPolicyBlock === null
+      ? 'model-policy block missing from skills/AGENTS.md'
+      : 'not embedded verbatim'
+  );
+}
+
+for (const file of hostAdapters) {
+  const rel = path.relative(repoRoot, file);
+  if (!fs.existsSync(file)) {
+    record(
+      `${rel}: embeds canonical model-policy block`,
+      false,
+      'host adapter file missing'
+    );
+    continue;
+  }
+  const content = fs.readFileSync(file, 'utf8');
+  record(
+    `${rel}: embeds canonical model-policy block`,
+    Boolean(modelPolicyBlock) && content.includes(modelPolicyBlock),
+    modelPolicyBlock === null
+      ? 'model-policy block missing from skills/AGENTS.md'
       : 'not embedded verbatim'
   );
 }

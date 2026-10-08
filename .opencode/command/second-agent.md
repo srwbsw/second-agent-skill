@@ -70,9 +70,27 @@ Pick the engine(s) from the request — default to `gemini` if none is named. Mo
 - Scope flags: `--diff=branch`, `--diff=staged`, `--diff=last-commit`, `--diff="HEAD~3..HEAD"`, or `--file=<absolute-path>` (repeatable). No flag → standalone question.
 - Multiple engines: repeat `--engine=` (fusion). Reviews run read-only by default; add `--unrestricted` only if the engine must edit/run.
 
+## Model and retry policy
+
+<!-- BEGIN model-policy -->
+```
+Model binding (review.js, agent.js, and native subagent delegation):
+
+- If the user named a model (`--engine=<name>:<model>`, or stated a model in the request), keep that binding for the run. On failure (non-zero exit, exit 3, timeout 124, quota/context errors, combined-prompt size limit, or engine stderr about an unavailable model), STOP. Summarize what failed using the LOG FILE tail, stderr, and the SECOND_OPINION_RESULT / SECOND_AGENT_RESULT JSON. Do NOT automatically retry, drop the `:model` suffix, pick a different model from a list, switch engines, change scope flags, or change native subagent model — unless the user explicitly chooses one of those next steps.
+
+- If the user did not name a model, use bare `--engine=<name>` so the spawned CLI uses its configured default. Do NOT invent or guess model IDs (especially Codex). Use `list.js`, `agy models`, `--list-models`, etc. only when helping the user choose upfront — never to silently substitute after a failure.
+
+- Native subagent path: when the user named a model or `--engine-arg=`, use review.js (see native-shortcut fall-through). When using a subagent without a user-specified model, the host session default is fine; do not swap to a different subagent model after a failure without asking.
+
+- After a failure, offer options and wait for the user: retry the same command unchanged; name a different model; switch engine; for prompt-size limits, narrow the diff or discuss `--no-embed` — do not apply these without confirmation.
+
+review.js / agent.js may append a codex-specific log note when a pinned codex model is rejected; that is a hint for the user, not permission for the harness to re-run with a different model.
+```
+<!-- END model-policy -->
+
 ## 3. Present the result
 
-In a non-TTY run the runner writes engine output to a log file and prints a `LOG FILE:` path (do not pipe to `tail`/`head`). Read that file, extract the text between the LAST `<<<SECOND_OPINION_START>>>` and `<<<SECOND_OPINION_END>>>` markers, and present it under a clear heading (e.g. `## Gemini's take`). Exit code `3` means the engine produced no usable output — retry or pick another engine.
+In a non-TTY run the runner writes engine output to a log file and prints a `LOG FILE:` path (do not pipe to `tail`/`head`). Read that file, extract the text between the LAST `<<<SECOND_OPINION_START>>>` and `<<<SECOND_OPINION_END>>>` markers, and present it under a clear heading (e.g. `## Gemini's take`). Exit code `3` means the engine produced no usable output — stop, report from the log and result JSON, then follow the model policy above (do not retry or switch on your own).
 
 ## 4. Task mode — delegate a task instead of reviewing it
 
