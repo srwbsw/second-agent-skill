@@ -1,11 +1,11 @@
 # second-agent (second-agent-skill)
 
-Multi-engine plugin with two entry points, both spawning engine CLIs (gemini, codex, claude, opencode, copilot, qwen, kilo, agy, cmd, cursor, kiro-cli) as subprocesses and embedding diff/file content into the prompt (engines don't self-read by default): `bin/review.js` for read-only second opinions/code review, and its sibling `bin/agent.js` for delegating an arbitrary engineering task (write tests, fix a bug, refactor) to one of those engines inside the repo. Both share internals via `bin/lib/`. `skills/AGENTS.md`'s `native-shortcut` block lets the calling assistant skip that subprocess spawn for `review.js` when the requested engine matches its own host and a native in-session delegation tool is available — see `skills/AGENTS.md` for details.
+Multi-harness plugin with two entry points, both spawning harness CLIs (gemini, codex, claude, opencode, copilot, qwen, kilo, agy, cmd, cursor, kiro-cli) as subprocesses and embedding diff/file content into the prompt (harnesses don't self-read by default): `bin/review.js` for read-only second opinions/code review, and its sibling `bin/agent.js` for delegating an arbitrary engineering task (write tests, fix a bug, refactor) to one of those harnesses inside the repo. Both share internals via `bin/lib/`. `skills/AGENTS.md`'s `native-shortcut` block lets the calling assistant skip that subprocess spawn for `review.js` when the requested harness matches its own host and a native in-session delegation tool is available — see `skills/AGENTS.md` for details.
 
 Subsystem-specific rules live next to the code:
-- **`bin/AGENTS.md`** — runner internals, engine flags, exit codes, secret guard
+- **`bin/AGENTS.md`** — runner internals, harness flags, exit codes, secret guard
 - **`test/AGENTS.md`** — test conventions + fixture contract
-- **`skills/AGENTS.md`** — engine skill docs & the canonical template/checklist source
+- **`skills/AGENTS.md`** — harness skill docs & the canonical template/checklist source
 
 ## Agent context files
 

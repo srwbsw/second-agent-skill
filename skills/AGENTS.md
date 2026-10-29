@@ -1,34 +1,34 @@
-# skills/ — engine skill docs
+# skills/ — harness skill docs
 
-`skills/second-agent/SKILL.md` is the **only skill** this plugin registers — canonical for both workflows it supports: getting a second opinion/review, and delegating an arbitrary task to another engine via `agent.js`. It used to be a hub plus one thin `<engine>-agent/SKILL.md` per engine, near-duplicates of the hub hardcoded to a single engine; every host (Claude Code, Copilot, agy, cmd, …) auto-discovers every `skills/*/SKILL.md` as its own skill, so that design meant users got bombarded with 11+ nearly-identical skills. They were folded into `second-agent/SKILL.md` alone — its frontmatter description now carries a trigger phrase per engine, and its body branches on whether the user named one (see "Choose an engine and model"). The prompt tiers, full template set, fusion guidance, and the "Adding new engines" checklist live in `skills/second-agent/references/` (`prompts.md`, `fusion.md`, `adding-engines.md`) — SKILL.md stays lean and points to them.
+`skills/second-agent/SKILL.md` is the **only skill** this plugin registers — canonical for both workflows it supports: getting a second opinion/review, and delegating an arbitrary task to another harness via `agent.js`. It used to be a hub plus one thin `<harness>-agent/SKILL.md` per harness, near-duplicates of the hub hardcoded to a single harness; every host (Claude Code, Copilot, agy, cmd, …) auto-discovers every `skills/*/SKILL.md` as its own skill, so that design meant users got bombarded with 11+ nearly-identical skills. They were folded into `second-agent/SKILL.md` alone — its frontmatter description now lists the harnesses it fires for, and its body branches on whether the user named one (see "Choose a harness and model"). The prompt tiers, full template set, fusion guidance, and the "Adding new harnesses" checklist live in `skills/second-agent/references/` (`prompts.md`, `fusion.md`, `adding-harnesses.md`) — SKILL.md stays lean and points to them.
 
-## Adding an engine
+## Adding a harness
 
-Follow `references/adding-engines.md` under `second-agent/` (the `SAFETY_FLAGS` map + `buildEngineCmd()` case block in `bin/lib/engines.js`, `list.js` if it needs provider/model discovery, the engine tables, and `safety.test.js`). `agent.js` shares that same case block, so task-mode support for a new engine is automatic — add a trigger phrase to `second-agent/SKILL.md`'s frontmatter description and a row to its engine table, same as every other engine. Then add a test fixture and a `requiredFunctionalFlags` entry — see `test/CLAUDE.md`.
+Follow `references/adding-harnesses.md` under `second-agent/` (the `SAFETY_FLAGS` map + `buildHarnessCmd()` case block in `bin/lib/harnesses.js`, `list.js` if it needs provider/model discovery, the harness tables, and `safety.test.js`). `agent.js` shares that same case block, so task-mode support for a new harness is automatic — add the harness name to the list in `second-agent/SKILL.md`'s frontmatter description and a row to its harness table, same as every other harness. Then add a test fixture and a `requiredFunctionalFlags` entry — see `test/CLAUDE.md`.
 
-## Keep the engine list in sync
+## Keep the harness list in sync
 
-The set of engines is repeated in four places — update all when adding/removing
+The set of harnesses is repeated in four places — update all when adding/removing
 (`test/host-parity.test.js` enforces the first pair staying in sync with each
 other; the other two are prose, not test-enforced):
 - `bin/review.js` **and** `bin/agent.js` → each keeps its own literal
-  `SUPPORTED_ENGINES`/`ENGINE_ALIASES` const (NOT hoisted to `bin/lib/engines.js`
+  `SUPPORTED_HARNESSES`/`HARNESS_ALIASES` const (NOT hoisted to `bin/lib/harnesses.js`
   — see that file's header comment for why)
-- `README.md` → Engines table
-- `skills/second-agent/SKILL.md` → engine table ("Choose an engine and model")
+- `README.md` → Harnesses table
+- `skills/second-agent/SKILL.md` → harness table ("Choose a harness and model")
 
-## Host parity — every engine is also a supported host
+## Host parity — every harness is also a supported host
 
 **Invariant:** the set of supported **host harnesses** (where a user installs the
-plugin and triggers reviews) must equal the set of supported **engines** (what
-`review.js`/`agent.js` spawn). Adding or removing an engine means adding or removing
+plugin and triggers reviews) must equal the set of supported **harnesses** (what
+`review.js`/`agent.js` spawn). Adding or removing a harness means adding or removing
 the matching host integration in the same change — never let the two sets drift.
 
 A host integration = (a) detection + install in `install.sh`, and (b) an adapter
 in that harness's native format that loads the second-agent workflow and embeds
 the canonical REVIEW snippet (so `test/locate.test.js` covers it).
 
-| Engine / host | Host adapter (reused/new) | `install.sh` mechanism | Status |
+| Harness / host | Host adapter (reused/new) | `install.sh` mechanism | Status |
 |---|---|---|---|
 | claude | `.claude-plugin` + `skills/*/SKILL.md` | `claude plugin marketplace add` + `install` | ✅ |
 | codex | `.codex-plugin` + skills | `codex plugin marketplace add` + `add` (`source: url`) | ✅ |
@@ -40,15 +40,15 @@ the canonical REVIEW snippet (so `test/locate.test.js` covers it).
 | agy | reuses `skills/*/SKILL.md` | `agy plugin install <dir>` | ✅ |
 | kilo | reuses `.opencode/command/second-agent.md` | copy → `~/.config/kilo/command/` (opencode fork) | ✅ |
 | cmd | reuses `skills/*/SKILL.md` | `cmd skills add <repo> -g` | ✅ |
-| kiro-cli | — (none) | — (none) | ⛔ engine-only exception |
+| kiro-cli | — (none) | — (none) | ⛔ harness-only exception |
 
 `test/host-parity.test.js` enforces the invariant: the `HOSTS=` list in
-`install.sh` must equal `SUPPORTED_ENGINES` (cursor≡agent), each host needs an
+`install.sh` must equal `SUPPORTED_HARNESSES` (cursor≡agent), each host needs an
 `if want <host>;` block, and there are no orphan hosts. If a harness genuinely
-has no host/skill mechanism it stays engine-only — record it in that test's
+has no host/skill mechanism it stays harness-only — record it in that test's
 `EXCEPTIONS` (with a reason) rather than silently dropping it. `kiro-cli` is
 the one recorded exception as of this writing: it is an MCP-only host with no
-skill/plugin-install mechanism (v2.12.3), so it has a `<engine>-agent` skill
+skill/plugin-install mechanism (v2.12.3), so it has a `<harness>-agent` skill
 (review + task delegation via `review.js`/`agent.js`) but no `install.sh`
 block and no `HOSTS=` entry — reviewing WITH kiro-cli works, installing INTO
 it does not (yet).
@@ -124,7 +124,7 @@ a dev checkout.
 
 ## Native-host shortcut — canonical snippet
 
-Before resolving the runner in the Golden path below, check whether the requested engine can skip the subprocess entirely. This applies to `review.js`'s Golden path ONLY — task delegation (`agent.js`) does not get this shortcut: bypassing `agent.js`'s own before/after `git status`/`HEAD` snapshot would lose the `SECOND_AGENT_RESULT.changes` ground truth, and that loss is silent. Considered and rejected for `agent.js` — do not re-add a task-mode variant without solving that gap first. `second-agent/SKILL.md` and the host adapters below embed this block verbatim, at the top of their "Golden path" / "Resolve the runner" section — edit it here, never per-file.
+Before resolving the runner in the Golden path below, check whether the requested harness can skip the subprocess entirely. This applies to `review.js`'s Golden path ONLY — task delegation (`agent.js`) does not get this shortcut: bypassing `agent.js`'s own before/after `git status`/`HEAD` snapshot would lose the `SECOND_AGENT_RESULT.changes` ground truth, and that loss is silent. Considered and rejected for `agent.js` — do not re-add a task-mode variant without solving that gap first. `second-agent/SKILL.md` and the host adapters below embed this block verbatim, at the top of their "Golden path" / "Resolve the runner" section — edit it here, never per-file.
 
 <!-- BEGIN native-shortcut -->
 ```
@@ -132,7 +132,7 @@ Before resolving $REVIEW_SCRIPT: if SECOND_AGENT_NO_NATIVE is set
 (`[ -n "${SECOND_AGENT_NO_NATIVE:-}" ]`), skip this block entirely — go
 straight to "$REVIEW_SCRIPT". Otherwise check, using a concrete signal
 (the native tool's actual name present in your own tool list — not
-inferred from conversation context), whether <engine> is the SAME
+inferred from conversation context), whether <harness> is the SAME
 runtime you are currently executing as, AND you have a native,
 model-invokable subagent-delegation mode that ACTUALLY BLOCKS
 write-capable tools (not just a curated tool list that still includes
@@ -147,20 +147,20 @@ get the exact composed prompt (diff/file embedded, self-contained notice,
 secret reminder, and answer-format envelope all included verbatim — do
 not hand-assemble this yourself). --print-prompt exiting non-zero → surface
 the error, do not substitute self-read content. Pass the printed text to
-your native subagent tool instead of spawning the engine CLI. Its raw
+your native subagent tool instead of spawning the harness CLI. Its raw
 response still carries the envelope and any preamble — extract the LAST
 complete <<<SECOND_OPINION_START>>>...<<<SECOND_OPINION_END>>> pair
 yourself (same non-empty-last-pair rule as review.js's own extraction)
 before presenting; never show the raw response verbatim.
 
 Also fall through to "$REVIEW_SCRIPT" when:
-- the request includes an explicit model/flag override for this engine
-  (e.g. --engine=claude:opus, --engine-arg=) — a native subagent inherits
+- the request includes an explicit model/flag override for this harness
+  (e.g. --harness=claude:opus, --engine-arg=) — a native subagent inherits
   your current session's config and cannot honor a different model/flag,
-- this engine is one slot inside a Fusion Model B call (single command,
-  repeated --engine=) — review.js's internal parallel-spawn loop can't
+- this harness is one slot inside a Fusion Model B call (single command,
+  repeated --harness=) — review.js's internal parallel-spawn loop can't
   reach your native tool; Fusion Model A (separate parallel tool calls
-  per engine) is unaffected — swap only that one call, present its
+  per harness) is unaffected — swap only that one call, present its
   result inline under its own heading same as any other slot, it simply
   has no log/answer file to point at.
 ```
@@ -174,13 +174,13 @@ Applies to `review.js`, `agent.js`, and native subagent delegation. `second-agen
 ```
 Model binding (review.js, agent.js, and native subagent delegation):
 
-- If the user named a model (`--engine=<name>:<model>`, or stated a model in the request), keep that binding for the run. On failure (non-zero exit, exit 3, timeout 124, quota/context errors, combined-prompt size limit, or engine stderr about an unavailable model), STOP. Summarize what failed using the LOG FILE tail, stderr, and the SECOND_OPINION_RESULT / SECOND_AGENT_RESULT JSON. Do NOT automatically retry, drop the `:model` suffix, pick a different model from a list, switch engines, change scope flags, or change native subagent model — unless the user explicitly chooses one of those next steps.
+- If the user named a model (`--harness=<name>:<model>`, or stated a model in the request), keep that binding for the run. On failure (non-zero exit, exit 3, timeout 124, quota/context errors, combined-prompt size limit, or harness stderr about an unavailable model), STOP. Summarize what failed using the LOG FILE tail, stderr, and the SECOND_OPINION_RESULT / SECOND_AGENT_RESULT JSON. Do NOT automatically retry, drop the `:model` suffix, pick a different model from a list, switch harnesses, change scope flags, or change native subagent model — unless the user explicitly chooses one of those next steps.
 
-- If the user did not name a model, use bare `--engine=<name>` so the spawned CLI uses its configured default. Do NOT invent or guess model IDs (especially Codex). Use `list.js`, `agy models`, `--list-models`, etc. only when helping the user choose upfront — never to silently substitute after a failure.
+- If the user did not name a model, use bare `--harness=<name>` so the spawned CLI uses its configured default. Do NOT invent or guess model IDs (especially Codex). Use `list.js`, `agy models`, `--list-models`, etc. only when helping the user choose upfront — never to silently substitute after a failure.
 
 - Native subagent path: when the user named a model or `--engine-arg=`, use review.js (see native-shortcut fall-through). When using a subagent without a user-specified model, the host session default is fine; do not swap to a different subagent model after a failure without asking.
 
-- After a failure, offer options and wait for the user: retry the same command unchanged; name a different model; switch engine; for prompt-size limits, narrow the diff or discuss `--no-embed` — do not apply these without confirmation.
+- After a failure, offer options and wait for the user: retry the same command unchanged; name a different model; switch harness; for prompt-size limits, narrow the diff or discuss `--no-embed` — do not apply these without confirmation.
 
 review.js / agent.js may append a codex-specific log note when a pinned codex model is rejected; that is a hint for the user, not permission for the harness to re-run with a different model.
 ```
@@ -193,9 +193,9 @@ The single copy-paste "locate → run → read the answer" recipe `second-agent/
 <!-- BEGIN golden-path -->
 ```bash
 # 1. Run (REVIEW_SCRIPT resolved by the snippet above):
-"$REVIEW_SCRIPT" --engine=<engine> --cwd=<repo> --diff=unstaged "<review prompt>"
+"$REVIEW_SCRIPT" --harness=<harness> --cwd=<repo> --diff=unstaged "<review prompt>"
 # 2. Result: stdout prints `ANSWER FILE: <path>`; the last line is a SECOND_OPINION_RESULT JSON.
-#    Read the ANSWER FILE with the Read tool — it is the engine's clean answer.
+#    Read the ANSWER FILE with the Read tool — it is the harness's clean answer.
 #    No ANSWER FILE line -> read the LOG FILE path instead.
 ```
 <!-- END golden-path -->
@@ -207,12 +207,12 @@ The task-delegation counterpart to the golden path above: locate `agent.js`, run
 <!-- BEGIN task-golden-path -->
 ```bash
 # 1. Run (AGENT_SCRIPT resolved by the snippet above). --unrestricted is a
-#    deliberate acknowledgment that the engine may edit files and run
+#    deliberate acknowledgment that the harness may edit files and run
 #    commands inside --cwd — there is no read-only mode for agent.js:
-"$AGENT_SCRIPT" --engine=<engine> --cwd=<repo> --unrestricted "<task prompt>"
+"$AGENT_SCRIPT" --harness=<harness> --cwd=<repo> --unrestricted "<task prompt>"
 # 2. Result: stdout prints a CHANGED FILES: block, then `ANSWER FILE: <path>`;
 #    the last line is a SECOND_AGENT_RESULT JSON (includes `changes`).
-#    Read the ANSWER FILE with the Read tool for the engine's report.
+#    Read the ANSWER FILE with the Read tool for the harness's report.
 #    No ANSWER FILE line -> read the LOG FILE path instead.
 ```
 <!-- END task-golden-path -->

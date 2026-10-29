@@ -607,8 +607,8 @@ if (modelPolicyBlock !== null) {
     modelPolicyBlock.includes('SECOND_OPINION_RESULT')
   );
   record(
-    'model-policy block: bare --engine default',
-    modelPolicyBlock.includes('bare `--engine=<name>`')
+    'model-policy block: bare --harness default',
+    modelPolicyBlock.includes('bare `--harness=<name>`')
   );
 }
 

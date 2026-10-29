@@ -611,6 +611,7 @@ function runAgyArgv({ engineSpec, probeName, extraArgs = [], cwd, env = {} }) {
   const { r, argv } = runAgyArgv({
     engineSpec: '--engine=opencode:testprov/testmodel',
     probeName: 'opencode-dir',
+    env: { FAKE_OPENCODE_HELP: 'dir' }, // R1: advertised branch
   });
   const dirIdx = argv.indexOf('--dir');
   const ok =
@@ -634,6 +635,7 @@ function runAgyArgv({ engineSpec, probeName, extraArgs = [], cwd, env = {} }) {
   const { r, argv } = runAgyArgv({
     engineSpec: '--engine=opencode',
     probeName: 'opencode-nomodel',
+    env: { FAKE_OPENCODE_HELP: 'dir' }, // R1: advertised branch
   });
   const ok =
     r.status === 0 &&
@@ -644,6 +646,403 @@ function runAgyArgv({ engineSpec, probeName, extraArgs = [], cwd, env = {} }) {
     'opencode: omits --model when no model given (uses CLI default)',
     ok,
     `status=${r.status} argv=${JSON.stringify(argv)}`
+  );
+}
+
+// ─── opencode --dir capability probe (R1–R4, c1–c12) ──────────────────────
+// bin/lib/harnesses.js probes `opencode run --help` and pushes `--dir <cwd>`
+// only when a `--dir` flag line is advertised (installed opencode v2.2.1
+// removed it and exits 1 on the unknown flag). The fake opencode fixture
+// selects the probe output via FAKE_OPENCODE_HELP and logs each probe's argv
+// to FAKE_HELP_LOG (exact content for a single probe: 'run\n--help\n').
+const PROBE_LOG_EXPECTED = 'run\n--help\n';
+
+function runOpencodeProbe({
+  mode,
+  engineSpec = '--engine=opencode',
+  name,
+  extraArgs = [],
+  cwd,
+}) {
+  const helpLog = path.join(TMP, `${name}.helplog`);
+  const t0 = Date.now();
+  const { r, argv } = runAgyArgv({
+    engineSpec,
+    probeName: name,
+    extraArgs,
+    cwd,
+    env: { FAKE_OPENCODE_HELP: mode, FAKE_HELP_LOG: helpLog },
+  });
+  const elapsedMs = Date.now() - t0;
+  let helpLogContent = '';
+  try {
+    helpLogContent = fs.readFileSync(helpLog, 'utf8');
+  } catch {
+    /* absent when the probe never ran */
+  }
+  let engineLog = '';
+  try {
+    engineLog = fs.readFileSync(path.join(TMP, name + '.engine.log'), 'utf8');
+  } catch {
+    /* absent on failure paths */
+  }
+  return { r, argv, helpLogContent, engineLog, elapsedMs };
+}
+
+// c1 | happy
+{
+  const { r, argv, helpLogContent } = runOpencodeProbe({
+    mode: 'dir',
+    engineSpec: '--engine=opencode:p/m',
+    name: 'oc-c1',
+  });
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    JSON.stringify(argv.slice(0, 7)) ===
+      JSON.stringify([
+        'run',
+        '--dir',
+        process.cwd(),
+        '--model',
+        'p/m',
+        '--agent',
+        'plan',
+      ]) &&
+    argv.slice(7).join('\n').includes('noop'); // prompt follows the exact 7-element prefix
+  record(
+    'c1: R1 — opencode:p/m, probe advertises --dir → probe ran as `run --help`; argv `run --dir <cwd> --model p/m --agent plan <prompt>`',
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 8))}`
+  );
+}
+
+// c2 | happy
+{
+  const { r, argv, helpLogContent, engineLog } = runOpencodeProbe({
+    mode: 'nodir',
+    name: 'oc-c2',
+  });
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    JSON.stringify(argv.slice(0, 3)) ===
+      JSON.stringify(['run', '--agent', 'plan']) &&
+    !argv.includes('--dir') &&
+    argv.length > 3 &&
+    /\[fake-opencode ok\] review complete/.test(engineLog);
+  record(
+    'c2: R2 — bare opencode, probe does not advertise --dir → argv `run --agent plan <prompt>`, no --dir, exit 0, envelope extracted',
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 5))}`
+  );
+}
+
+// c3 | happy
+{
+  const { r, argv, helpLogContent } = runOpencodeProbe({
+    mode: 'nodir',
+    engineSpec: '--engine=opencode:p/m',
+    name: 'oc-c3',
+  });
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    JSON.stringify(argv.slice(0, 5)) ===
+      JSON.stringify(['run', '--model', 'p/m', '--agent', 'plan']) &&
+    !argv.includes('--dir');
+  record(
+    'c3: R2 — opencode:p/m, probe does not advertise --dir → argv keeps --model p/m, no --dir',
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 6))}`
+  );
+}
+
+// c4 | weird
+{
+  const { r, argv, helpLogContent } = runOpencodeProbe({
+    mode: 'dir',
+    name: 'oc-c4',
+    extraArgs: ['--unrestricted'],
+  });
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    JSON.stringify(argv.slice(0, 3)) ===
+      JSON.stringify(['run', '--dir', process.cwd()]) &&
+    !argv.includes('--agent') &&
+    !argv.includes('plan');
+  record(
+    'c4: R4 — --unrestricted opencode, probe advertises --dir → `--dir <cwd>` kept; --agent and plan absent',
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 5))}`
+  );
+}
+
+// c5 | weird
+{
+  const { r, argv, helpLogContent } = runOpencodeProbe({
+    mode: 'nodir',
+    name: 'oc-c5',
+    extraArgs: ['--unrestricted'],
+  });
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    JSON.stringify(argv.slice(0, 1)) === JSON.stringify(['run']) &&
+    argv.length > 1 &&
+    !argv.includes('--dir') &&
+    !argv.includes('--agent') &&
+    !argv.includes('plan');
+  record(
+    'c5: R2/R4 — --unrestricted opencode, probe does not advertise --dir → no --dir, no --agent',
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 5))}`
+  );
+}
+
+// c6 | edge
+{
+  const { r, argv, helpLogContent } = runOpencodeProbe({
+    mode: 'prose-dir',
+    name: 'oc-c6',
+  });
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    JSON.stringify(argv.slice(0, 3)) ===
+      JSON.stringify(['run', '--agent', 'plan']) &&
+    !argv.includes('--dir') &&
+    argv.length > 3 &&
+    argv.slice(3).join('\n').includes('noop');
+  record(
+    'c6: R3 — help mentions --dir only mid-line in prose → not advertised → no --dir',
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 5))}`
+  );
+}
+
+// c7 | edge
+{
+  const { r, argv, helpLogContent } = runOpencodeProbe({
+    mode: 'directory-flag',
+    name: 'oc-c7',
+  });
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    JSON.stringify(argv.slice(0, 3)) ===
+      JSON.stringify(['run', '--agent', 'plan']) &&
+    !argv.includes('--dir') &&
+    argv.length > 3 &&
+    argv.slice(3).join('\n').includes('noop');
+  record(
+    'c7: R3 — help advertises only --directory → not advertised → no --dir',
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 5))}`
+  );
+}
+
+// c8 | edge
+{
+  const { r, argv, helpLogContent } = runOpencodeProbe({
+    mode: 'stderr-dir',
+    name: 'oc-c8',
+  });
+  const dirIdx = argv.indexOf('--dir');
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    dirIdx === 1 &&
+    argv[dirIdx + 1] === process.cwd();
+  record(
+    'c8: R1/R3 — --dir flag line on stderr only (stdout empty) → advertised → `--dir <cwd>` present',
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 5))}`
+  );
+}
+
+// c9 | edge
+{
+  const { r, argv, helpLogContent } = runOpencodeProbe({
+    mode: 'error',
+    name: 'oc-c9',
+  });
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    JSON.stringify(argv.slice(0, 3)) ===
+      JSON.stringify(['run', '--agent', 'plan']) &&
+    !argv.includes('--dir') &&
+    argv.length > 3 &&
+    argv.slice(3).join('\n').includes('noop');
+  record(
+    'c9: R3 — probe exits 2 with no output → not advertised; run still exits 0 (no throw)',
+    ok,
+    `status=${r.status} stderr=${(r.stderr || '').slice(0, 200)} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 5))}`
+  );
+}
+
+// c10 | edge
+{
+  const { r, argv, helpLogContent, elapsedMs } = runOpencodeProbe({
+    mode: 'hang',
+    name: 'oc-c10',
+  });
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    argv[0] === 'run' &&
+    !argv.includes('--dir') &&
+    elapsedMs >= 4500 &&
+    elapsedMs < 9000;
+  record(
+    'c10: R3 — probe hangs past the 5000 ms probe timeout → killed, not advertised; exit 0; wall time in [4500, 9000) ms',
+    ok,
+    `status=${r.status} signal=${r.signal} elapsedMs=${elapsedMs} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 5))}`
+  );
+}
+
+// c11 | happy
+{
+  const { r, argv, helpLogContent } = runOpencodeProbe({
+    mode: 'dir',
+    engineSpec: '--engine=opencode:p/m',
+    name: 'oc-c11',
+  });
+  // Exactly one probe, argv exactly `run --help` (no prompt/--model/--agent).
+  // The real run's argv dump (FAKE_ARGV_FILE) must be a different, longer
+  // invocation — i.e. the probe never wrote it.
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    argv.length > 2 &&
+    argv[1] !== '--help';
+  record(
+    'c11: R3 — probe argv is exactly `run --help`, logged once; FAKE_ARGV_FILE holds the real run, not the probe',
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 5))}`
+  );
+}
+
+// c11 (fixture guard) — passes before implementation by design: it checks the
+// fake binary's own probe contract (no FAKE_ARGV_FILE write, exact help log),
+// which c11 above relies on.
+{
+  const argvFile = path.join(TMP, 'oc-c11-fixture.argv');
+  const helpLog = path.join(TMP, 'oc-c11-fixture.helplog');
+  const r = spawnSync(path.join(FIXTURES, 'opencode'), ['run', '--help'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      FAKE_ARGV_FILE: argvFile,
+      FAKE_HELP_LOG: helpLog,
+      FAKE_OPENCODE_HELP: 'dir',
+    },
+    timeout: 10_000,
+  });
+  const ok =
+    r.status === 0 &&
+    !fs.existsSync(argvFile) &&
+    fs.readFileSync(helpLog, 'utf8') === PROBE_LOG_EXPECTED &&
+    /^\s+--dir string/m.test(r.stdout);
+  record(
+    'c11 (fixture guard): fake opencode probe prints per mode, logs argv, never writes FAKE_ARGV_FILE',
+    ok,
+    `status=${r.status} argvFileExists=${fs.existsSync(argvFile)}`
+  );
+}
+
+// c12 | weird
+{
+  const spacedCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'so a b ü-'));
+  try {
+    const { r, argv, helpLogContent } = runOpencodeProbe({
+      mode: 'dir',
+      name: 'oc-c12',
+      cwd: spacedCwd,
+    });
+    const dirIdx = argv.indexOf('--dir');
+    const ok =
+      r.status === 0 &&
+      helpLogContent === PROBE_LOG_EXPECTED &&
+      dirIdx === 1 &&
+      argv[dirIdx + 1] === spacedCwd;
+    record(
+      'c12: R1 — advertised + cwd with a space and unicode → `--dir` followed by that exact cwd as one argv element',
+      ok,
+      `status=${r.status} expected=${JSON.stringify(spacedCwd)} argv=${JSON.stringify(argv.slice(0, 4))}`
+    );
+  } finally {
+    fs.rmSync(spacedCwd, { recursive: true, force: true });
+  }
+}
+
+// c18 / c19 | edge — aliased flag lines (R1). The help line carries both the
+// long flag and a short alias; either order still advertises --dir.
+const ADVERTISED_PREFIX = (cwd) => [
+  'run',
+  '--dir',
+  cwd,
+  '--model',
+  'p/m',
+  '--agent',
+  'plan',
+];
+for (const [id, mode, shape] of [
+  ['c18', 'alias-long', '`--dir, -d string`'],
+  ['c19', 'alias-short', '`-d, --dir string`'],
+]) {
+  const { r, argv, helpLogContent } = runOpencodeProbe({
+    mode,
+    engineSpec: '--engine=opencode:p/m',
+    name: `oc-${id}`,
+  });
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    JSON.stringify(argv.slice(0, 7)) ===
+      JSON.stringify(ADVERTISED_PREFIX(process.cwd()));
+  record(
+    `${id}: R1 — help flag line aliased as ${shape} → advertised → probe ran as \`run --help\`; argv prefix \`run --dir <cwd> --model p/m --agent plan\``,
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 8))}`
+  );
+}
+
+// c17a | edge — missing binary (R3). `opencode` is absent from PATH, so the
+// probe's spawnSync returns an ENOENT result with null stdout/stderr; it must
+// not throw, and review.js's preflight then reports exit 127.
+{
+  const MISSING_PATH = '/usr/bin:/bin';
+  const pre = spawnSync('/bin/sh', ['-c', 'command -v opencode'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: MISSING_PATH },
+  });
+  const preOk = pre.status !== null && (pre.stdout || '').trim() === '';
+  const r = spawnSync(
+    process.execPath,
+    [REVIEW, '--engine=opencode:p/m', '--cwd=' + process.cwd(), 'noop'],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: MISSING_PATH },
+      timeout: 15_000,
+    }
+  );
+  const resultLine = (r.stdout || '')
+    .split('\n')
+    .filter((l) => l.startsWith('SECOND_OPINION_RESULT: '))
+    .pop();
+  const ok =
+    preOk &&
+    r.status === 127 &&
+    /not found on PATH/.test(r.stderr || '') &&
+    typeof resultLine === 'string' &&
+    resultLine.includes('"exit":127');
+  record(
+    'c17a: R3 — opencode missing from PATH → probe does not throw; preflight exit 127',
+    ok,
+    `precondition=${preOk} (command -v → ${JSON.stringify(pre.stdout)}) status=${r.status} stderr=${(r.stderr || '').slice(0, 300)} resultLine=${JSON.stringify(resultLine)}`
   );
 }
 
@@ -1164,7 +1563,7 @@ const EXAMPLE = 'EXAMPLE_ENV_VALUE_OK=placeholder';
 }
 
 // ─── Test 45: kiro-cli --unrestricted strips --trust-tools=, adds
-// --trust-all-tools (ADDITIVE safety model — see engines.js comment) ──────
+// --trust-all-tools (ADDITIVE safety model — see harnesses.js comment) ──────
 {
   const { r, argv } = runAgyArgv({
     engineSpec: '--engine=kiro-cli',
@@ -1262,8 +1661,17 @@ const EXAMPLE = 'EXAMPLE_ENV_VALUE_OK=placeholder';
 
 // ─── Test 49: --print-prompt + --diff= embeds the <diff> block in the
 // printed prompt (proves diff content was actually fetched, not skipped) ──
+// Runs in a throwaway repo with two commits, so `--diff=last-commit` (git diff
+// HEAD~1) is one small known change. Against the real checkout it would pull in
+// every uncommitted edit and overflow the prompt size limit.
 {
-  const repo = path.join(__dirname, '..');
+  const { repo, git } = newRepo();
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'one\n');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'one');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'two\n');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'two');
   const marker = 'MARKER_DIFF_49_UNIQUE';
   const r = spawnSync(
     process.execPath,
@@ -1292,6 +1700,7 @@ const EXAMPLE = 'EXAMPLE_ENV_VALUE_OK=placeholder';
     ok,
     `status=${r.status} stdout=${(r.stdout || '').slice(0, 300)}`
   );
+  fs.rmSync(repo, { recursive: true, force: true });
 }
 
 // ─── Test 50: --print-prompt is rejected in fusion mode (2+ --engine=) ────
@@ -1367,6 +1776,341 @@ const EXAMPLE = 'EXAMPLE_ENV_VALUE_OK=placeholder';
     '--print-prompt: prompt-size cap still enforced (exit 1, no stdout, stderr mentions the byte limit)',
     ok,
     `status=${r.status} stdout=${(r.stdout || '').slice(0, 100)} stderr=${(r.stderr || '').slice(0, 200)}`
+  );
+}
+
+// ─── --harness selector (R6, R7; c20–c27) ────────────────────────────────
+// `--harness=<name>[:<model>]` is the new selector; `--engine=` stays as an
+// alias. Both in one call is a usage error. The result JSON carries `harness`
+// and `engine` with the same value (per slot in fusion).
+
+// Run review.js with an arbitrary list of selector args (no --log, so fusion
+// and single runs share one shape). Returns spawnSync result, the argv the
+// fixture dumped (FAKE_ARGV_FILE; [] when no engine was spawned), whether
+// that file exists, and the parsed SECOND_OPINION_RESULT line (null if absent).
+function runSelectors({ selectors, name, env = {} }) {
+  const argvFile = path.join(TMP, `${name}.argv`);
+  const r = spawnSync(
+    process.execPath,
+    [REVIEW, ...selectors, '--cwd=' + process.cwd(), '--heartbeat=0', 'noop'],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${FIXTURES}:${process.env.PATH}`,
+        FAKE_BEHAVIOR: 'ok',
+        FAKE_ARGV_FILE: argvFile,
+        ...env,
+      },
+      timeout: 30_000,
+    }
+  );
+  return {
+    r,
+    argvCreated: fs.existsSync(argvFile),
+    result: parseOpinionResult(r.stdout),
+  };
+}
+
+// Parse the `SECOND_OPINION_RESULT: {...}` line from stdout; null when
+// missing or malformed (never throws).
+function parseOpinionResult(stdout) {
+  const m = (stdout || '').match(/^SECOND_OPINION_RESULT: (.+)$/m);
+  if (!m) return null;
+  try {
+    return JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
+}
+
+// c20 | happy
+{
+  const { r, argv, helpLogContent } = runOpencodeProbe({
+    mode: 'dir',
+    engineSpec: '--harness=opencode:p/m',
+    name: 'oc-c20',
+  });
+  const ok =
+    r.status === 0 &&
+    helpLogContent === PROBE_LOG_EXPECTED &&
+    JSON.stringify(argv.slice(0, 7)) ===
+      JSON.stringify([
+        'run',
+        '--dir',
+        process.cwd(),
+        '--model',
+        'p/m',
+        '--agent',
+        'plan',
+      ]) &&
+    argv.slice(7).join('\n').includes('noop');
+  record(
+    'c20: R6 — --harness=opencode:p/m, probe advertises --dir → argv `run --dir <cwd> --model p/m --agent plan <prompt>` (same as --engine), exit 0',
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 8))} stderr=${(r.stderr || '').slice(0, 200)}`
+  );
+}
+
+// c21 | happy
+{
+  const viaEngine = runAgyArgv({
+    engineSpec: '--engine=codex',
+    probeName: 'c21-engine',
+  });
+  const viaHarness = runAgyArgv({
+    engineSpec: '--harness=codex',
+    probeName: 'c21-harness',
+  });
+  const ok =
+    viaEngine.r.status === 0 &&
+    viaEngine.argv.length > 0 &&
+    viaHarness.r.status === 0 &&
+    JSON.stringify(viaHarness.argv) === JSON.stringify(viaEngine.argv);
+  record(
+    'c21: R6 — --harness=codex → codex argv identical to --engine=codex for the same prompt, exit 0',
+    ok,
+    `engine: status=${viaEngine.r.status} argvLen=${viaEngine.argv.length}; harness: status=${viaHarness.r.status} argvLen=${viaHarness.argv.length} sameArgv=${JSON.stringify(viaHarness.argv) === JSON.stringify(viaEngine.argv)} stderr=${(viaHarness.r.stderr || '').slice(0, 200)}`
+  );
+}
+
+// c22 | happy
+{
+  const { r, result } = runSelectors({
+    selectors: ['--harness=codex', '--harness=opencode:p/m'],
+    name: 'c22',
+  });
+  const slots = (result && result.slots) || [];
+  const ok =
+    r.status === 0 &&
+    !!result &&
+    result.fusion === true &&
+    slots.length === 2 &&
+    JSON.stringify(slots.map((s) => s.engine)) ===
+      JSON.stringify(['codex', 'opencode']) &&
+    JSON.stringify(slots.map((s) => s.model)) ===
+      JSON.stringify([null, 'p/m']) &&
+    JSON.stringify(slots.map((s) => s.exit)) === JSON.stringify([0, 0]);
+  record(
+    'c22: R6 — repeated --harness=codex --harness=opencode:p/m → fusion, two slots (codex, opencode:p/m), both exit 0',
+    ok,
+    `status=${r.status} result=${JSON.stringify(result)} stderr=${(r.stderr || '').slice(0, 200)}`
+  );
+}
+
+// c23 | weird
+{
+  const viaEngine = runSelectors({
+    selectors: ['--engine=codex,opencode'],
+    name: 'c23-engine',
+  });
+  const viaHarness = runSelectors({
+    selectors: ['--harness=codex,opencode'],
+    name: 'c23-harness',
+  });
+  const names = (x) =>
+    ((x.result && x.result.slots) || []).map((s) => `${s.engine}:${s.model}`);
+  const ok =
+    viaEngine.r.status === 0 &&
+    viaHarness.r.status === 0 &&
+    JSON.stringify(names(viaEngine)) ===
+      JSON.stringify(['codex:null', 'opencode:null']) &&
+    JSON.stringify(names(viaHarness)) === JSON.stringify(names(viaEngine));
+  record(
+    'c23: R6 — --harness=codex,opencode (CSV) → same two slots as --engine=codex,opencode',
+    ok,
+    `engine: status=${viaEngine.r.status} slots=${JSON.stringify(names(viaEngine))}; harness: status=${viaHarness.r.status} slots=${JSON.stringify(names(viaHarness))} stderr=${(viaHarness.r.stderr || '').slice(0, 200)}`
+  );
+}
+
+// c24 | edge
+{
+  const { r, argvCreated, result } = runSelectors({
+    selectors: ['--harness=codex', '--engine=codex'],
+    name: 'c24',
+  });
+  const stderr = r.stderr || '';
+  const ok =
+    r.status === 1 &&
+    !argvCreated &&
+    result === null &&
+    /--harness/.test(stderr) &&
+    /--engine(?![-\w])/.test(stderr);
+  record(
+    'c24: R6 — --harness=codex plus --engine=codex in one call → usage error exit 1, no spawn, stderr names --harness and --engine',
+    ok,
+    `status=${r.status} argvCreated=${argvCreated} result=${JSON.stringify(result)} stderr=${stderr.slice(0, 300)}`
+  );
+}
+
+// c25 | edge
+{
+  const { r, argvCreated, result } = runSelectors({
+    selectors: ['--harness='],
+    name: 'c25',
+  });
+  const stderr = r.stderr || '';
+  const ok =
+    r.status === 1 &&
+    !argvCreated &&
+    result === null &&
+    /--harness/.test(stderr);
+  record(
+    'c25: R6 — --harness= (empty value) → usage error exit 1, no spawn, stderr names --harness',
+    ok,
+    `status=${r.status} argvCreated=${argvCreated} stdoutHead=${(r.stdout || '').slice(0, 80)} stderr=${stderr.slice(0, 300)}`
+  );
+}
+
+// c26 | happy
+{
+  const { r } = runAgyArgv({
+    engineSpec: '--harness=codex',
+    probeName: 'c26',
+  });
+  const result = parseOpinionResult(r.stdout);
+  const ok =
+    r.status === 0 &&
+    !!result &&
+    result.harness === 'codex' &&
+    result.engine === 'codex';
+  record(
+    'c26: R7 — single --harness=codex run → SECOND_OPINION_RESULT has "harness":"codex" and "engine":"codex"',
+    ok,
+    `status=${r.status} result=${JSON.stringify(result)} stderr=${(r.stderr || '').slice(0, 200)}`
+  );
+}
+
+// c27 | weird
+{
+  const { r, result } = runSelectors({
+    selectors: ['--harness=codex', '--harness=opencode:p/m'],
+    name: 'c27',
+  });
+  const slots = (result && result.slots) || [];
+  const ok =
+    r.status === 0 &&
+    slots.length === 2 &&
+    JSON.stringify(slots.map((s) => s.harness)) ===
+      JSON.stringify(['codex', 'opencode']) &&
+    JSON.stringify(slots.map((s) => s.engine)) ===
+      JSON.stringify(['codex', 'opencode']);
+  record(
+    'c27: R7 — fusion result: each slot carries harness and engine with matching values (codex, opencode)',
+    ok,
+    `status=${r.status} result=${JSON.stringify(result)} stderr=${(r.stderr || '').slice(0, 200)}`
+  );
+}
+
+// c31 | happy (guard) — review.js preflight-127 result carries harness and engine
+{
+  const MISSING_PATH = '/usr/bin:/bin';
+  const pre = spawnSync('/bin/sh', ['-c', 'command -v opencode'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: MISSING_PATH },
+  });
+  const preOk = pre.status !== null && (pre.stdout || '').trim() === '';
+  const r = spawnSync(
+    process.execPath,
+    [REVIEW, '--engine=opencode:p/m', '--cwd=' + process.cwd(), 'noop'],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: MISSING_PATH },
+      timeout: 15_000,
+    }
+  );
+  const result = parseOpinionResult(r.stdout);
+  const ok =
+    preOk &&
+    r.status === 127 &&
+    !!result &&
+    result.harness === 'opencode' &&
+    result.engine === 'opencode' &&
+    result.exit === 127;
+  record(
+    'c31: R7 — review.js preflight 127 (opencode missing from PATH) result line has harness and engine both "opencode", exit 127',
+    ok,
+    `precondition=${preOk} status=${r.status} result=${JSON.stringify(result)}`
+  );
+}
+
+// c34 | edge (guard) — leaked-flag registry, review.js
+{
+  const r = spawnSync(
+    process.execPath,
+    [
+      REVIEW,
+      '--engine=codex',
+      '--cwd=' + process.cwd(),
+      '--heartbeat=0',
+      'noop',
+      '--',
+      '--harness=x',
+    ],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${FIXTURES}:${process.env.PATH}`,
+        FAKE_BEHAVIOR: 'ok',
+      },
+      timeout: 30_000,
+    }
+  );
+  const stderr = r.stderr || '';
+  const ok =
+    /review\.js: note: .*'--harness=x'/.test(stderr) &&
+    /placed after '--'/.test(stderr);
+  record(
+    "c34: R6 — review.js `-- --harness=x` after the prompt → stderr carries the misplaced-flag note naming '--harness=x'",
+    ok,
+    `status=${r.status} stderr=${stderr.slice(0, 300)}`
+  );
+}
+
+// c35 | edge (guard) — fusion launch-failure slots carry harness === engine
+{
+  const notADir = path.join(TMP, 'c35-not-a-dir');
+  fs.writeFileSync(notADir, 'regular file, not a directory\n');
+  const { r, result } = runSelectors({
+    selectors: ['--harness=codex', '--harness=opencode:p/m'],
+    name: 'c35',
+    env: { TMPDIR: notADir },
+  });
+  const slots = (result && result.slots) || [];
+  const ok =
+    r.status === 1 &&
+    !!result &&
+    result.fusion === true &&
+    JSON.stringify(slots.map((s) => s.harness)) ===
+      JSON.stringify(['codex', 'opencode']) &&
+    JSON.stringify(slots.map((s) => s.engine)) ===
+      JSON.stringify(['codex', 'opencode']) &&
+    JSON.stringify(slots.map((s) => s.exit)) === JSON.stringify([1, 1]);
+  record(
+    'c35: R7 — fusion launch failure (TMPDIR is a regular file) → every slot has harness equal to engine, exit 1',
+    ok,
+    `status=${r.status} result=${JSON.stringify(result)} stderr=${(r.stderr || '').slice(0, 300)}`
+  );
+}
+
+// c36 | edge (guard) — engine-then-harness order, review.js
+{
+  const { r, argvCreated, result } = runSelectors({
+    selectors: ['--engine=codex', '--harness=codex'],
+    name: 'c36',
+  });
+  const stderr = r.stderr || '';
+  const ok =
+    r.status === 1 &&
+    !argvCreated &&
+    result === null &&
+    /--harness/.test(stderr) &&
+    /--engine(?![-\w])/.test(stderr);
+  record(
+    'c36: R6 — review.js --engine=codex then --harness=codex → usage error exit 1, no spawn, stderr names both flags',
+    ok,
+    `status=${r.status} argvCreated=${argvCreated} result=${JSON.stringify(result)} stderr=${stderr.slice(0, 300)}`
   );
 }
 

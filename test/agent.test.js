@@ -9,7 +9,7 @@
  * Contract under test (see spec "Phase 2 — bin/agent.js"):
  *   - Refuses to run without --unrestricted (hard gate, exit 1, NO spawn).
  *   - Exactly one engine slot; multiple --engine / CSV → exit 1.
- *   - Engine argv is built via the shared buildEngineCmd() with
+ *   - Engine argv is built via the shared buildHarnessCmd() with
  *     unrestricted=true: safety/plan/read-only flags are ALWAYS absent,
  *     functional flags (exec/--print/run, model flags) are present, and the
  *     composed prompt is the last positional CLI argument to the engine.
@@ -289,6 +289,7 @@ function rmrf(p) {
   const { r, argv } = runAgentArgv({
     engineSpec: 'opencode:testprov/testmodel',
     probeName: 'argv-opencode',
+    env: { FAKE_OPENCODE_HELP: 'dir' }, // R1: advertised branch
   });
   const runIdx = argv.indexOf('run');
   const dirIdx = argv.indexOf('--dir');
@@ -308,6 +309,79 @@ function rmrf(p) {
     'opencode argv: safety flags absent, run/--dir/--model/prompt present in order',
     ok,
     `status=${r.status} argv=${JSON.stringify(argv)}`
+  );
+}
+
+// ─── Test 6b (c16): opencode --dir omitted when probe does not advertise it ─
+// R2/R4: agent.js is always unrestricted, so with no `--dir` advertised by
+// `opencode run --help` the argv is just `run <prompt>` (no --dir, no
+// --agent plan) and the run completes.
+{
+  const helpLog = path.join(TMP, 'argv-opencode-nodir.helplog');
+  const { r, argv } = runAgentArgv({
+    engineSpec: 'opencode',
+    probeName: 'argv-opencode-nodir',
+    env: { FAKE_OPENCODE_HELP: 'nodir', FAKE_HELP_LOG: helpLog },
+  });
+  let helpLogContent = '';
+  try {
+    helpLogContent = fs.readFileSync(helpLog, 'utf8');
+  } catch {
+    /* absent when the probe never ran */
+  }
+  const promptIdx = argv.indexOf(PROMPT_MARKER);
+  const ok =
+    r.status === 0 &&
+    helpLogContent === 'run\n--help\n' &&
+    argv[0] === 'run' &&
+    promptIdx > 0 &&
+    !argv.includes('--dir') &&
+    !argv.includes('--agent') &&
+    !argv.includes('plan');
+  record(
+    'c16: R2/R4 — agent.js --engine=opencode --unrestricted, probe does not advertise --dir → argv `run <prompt>`, no --dir, no --agent; exit 0',
+    ok,
+    `status=${r.status} helpLog=${JSON.stringify(helpLogContent)} argv=${JSON.stringify(argv.slice(0, 5))}`
+  );
+}
+
+// ─── Test 6c (c17b): opencode missing from PATH → agent.js exit 127, no throw ─
+// R3: `opencode` is absent, so the capability probe inside buildHarnessCmd()
+// gets an ENOENT spawnSync result (null stdout/stderr). It must not throw;
+// agent.js's preflight then reports exit 127 with the result line.
+{
+  const MISSING_PATH = '/usr/bin:/bin';
+  const pre = spawnSync('/bin/sh', ['-c', 'command -v opencode'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: MISSING_PATH },
+  });
+  const preOk = pre.status !== null && (pre.stdout || '').trim() === '';
+  const r = spawnSync(
+    process.execPath,
+    [
+      AGENT,
+      '--engine=opencode:p/m',
+      '--cwd=' + process.cwd(),
+      '--unrestricted',
+      'noop',
+    ],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: MISSING_PATH },
+      timeout: 15_000,
+    }
+  );
+  const result = parseResultLine(r.stdout);
+  const ok =
+    preOk &&
+    r.status === 127 &&
+    /not found on PATH/.test(r.stderr || '') &&
+    result !== null &&
+    result.exit === 127;
+  record(
+    'c17b: R3 — opencode missing from PATH → agent.js exit 127, no throw',
+    ok,
+    `precondition=${preOk} (command -v → ${JSON.stringify(pre.stdout)}) status=${r.status} stderr=${(r.stderr || '').slice(0, 300)} result=${JSON.stringify(result)}`
   );
 }
 
@@ -848,7 +922,7 @@ function rmrf(p) {
 
 // ─── Test 30 (M3b): `-- --bar` passthrough, positioned before prompt ──────
 // Unlike --engine-arg=, a bare `--` swallows every remaining CLI token into
-// extraEngineArgs (agent.js's parse loop does `extraEngineArgs =
+// extraHarnessArgs (agent.js's parse loop does `extraHarnessArgs =
 // argv.slice(i + 1); break;` on `--`) — so the prompt must be given BEFORE
 // `--`, matching the usage string's `"<task prompt>" [... | -- <engine-args
 // ...>]` ordering. Confirms the known semantic: the composed prompt always
@@ -883,7 +957,7 @@ function rmrf(p) {
 }
 
 // ─── Test 31 (m4): --engine=cursor resolves to the `agent` binary ─────────
-// If the alias were dropped, 'cursor' would fail SUPPORTED_ENGINES.includes()
+// If the alias were dropped, 'cursor' would fail SUPPORTED_HARNESSES.includes()
 // and exit 1 before ever spawning — the fixture's argv file would never be
 // created. A non-empty argv file, with the `agent` fixture's functional
 // flags present, proves the alias resolved to the `agent` binary.
@@ -1847,7 +1921,7 @@ function sleepMsSync(ms) {
 // check ──────────────────────────────────────────────────────────────────
 // Reuses the F6/F7 read-only --log trick: a pre-existing, chmod 0o444 log
 // path makes fs.createWriteStream's underlying open() fail ASYNCHRONOUSLY
-// (EACCES) — logStream is still truthy at the moment run.runEngine() is
+// (EACCES) — logStream is still truthy at the moment run.runHarness() is
 // called (the error hasn't fired yet), so before the fix agent.js chose the
 // watcher via `strictEnvelope: !logStream` = false (loose) at that instant.
 // The engine (start-only) emits ONLY a bare START marker — no END, no
@@ -1979,6 +2053,205 @@ function sleepMsSync(ms) {
     'agent.js: unavailable pinned codex model preserves failure with hint',
     ok,
     `status=${r.status} log=${log.slice(-400)}`
+  );
+}
+
+// ─── --harness selector (R6, R7; c28, c29) ────────────────────────────────
+
+// c28 | happy
+{
+  const viaEngine = runAgentArgv({
+    engineSpec: 'codex',
+    probeName: 'c28-engine',
+  });
+  const harnessArgv = path.join(TMP, 'c28-harness.argv');
+  const rHarness = spawnAgent(
+    [
+      '--harness=codex',
+      '--cwd=' + process.cwd(),
+      '--unrestricted',
+      PROMPT_MARKER,
+    ],
+    { env: { FAKE_BEHAVIOR: 'ok', FAKE_ARGV_FILE: harnessArgv } }
+  );
+  const argvH = readArgvFile(harnessArgv);
+  const result = parseResultLine(rHarness.stdout);
+  const ok =
+    viaEngine.r.status === 0 &&
+    viaEngine.argv.length > 0 &&
+    rHarness.status === 0 &&
+    JSON.stringify(argvH) === JSON.stringify(viaEngine.argv) &&
+    !!result &&
+    result.harness === 'codex' &&
+    result.engine === 'codex';
+  record(
+    'c28: R6/R7 — agent.js --harness=codex --unrestricted → argv identical to --engine=codex; result line has harness and engine both "codex"',
+    ok,
+    `engineStatus=${viaEngine.r.status} harnessStatus=${rHarness.status} argvLen=${argvH.length}/${viaEngine.argv.length} sameArgv=${JSON.stringify(argvH) === JSON.stringify(viaEngine.argv)} result=${JSON.stringify(result)} stderr=${(rHarness.stderr || '').slice(0, 200)}`
+  );
+}
+
+// c29 | edge
+{
+  const argvFile = path.join(TMP, 'c29.argv');
+  const r = spawnAgent(
+    [
+      '--harness=codex',
+      '--engine=codex',
+      '--cwd=' + process.cwd(),
+      '--unrestricted',
+      PROMPT_MARKER,
+    ],
+    { env: { FAKE_BEHAVIOR: 'ok', FAKE_ARGV_FILE: argvFile } }
+  );
+  const argvCreated = fs.existsSync(argvFile);
+  const stderr = r.stderr || '';
+  const ok =
+    r.status === 1 &&
+    !argvCreated &&
+    /--harness/.test(stderr) &&
+    /--engine(?![-\w])/.test(stderr);
+  record(
+    'c29: R6 — agent.js --harness=codex plus --engine=codex → usage error exit 1, no spawn, stderr names --harness and --engine',
+    ok,
+    `status=${r.status} argvCreated=${argvCreated} stderr=${stderr.slice(0, 300)}`
+  );
+}
+
+// c30 | edge
+{
+  const argvFile = path.join(TMP, 'c30.argv');
+  const r = spawnAgent(
+    [
+      '--harness=codex',
+      '--engine=codex',
+      '--cwd=' + process.cwd(),
+      '--unrestricted',
+      PROMPT_MARKER,
+    ],
+    { env: { FAKE_BEHAVIOR: 'ok', FAKE_ARGV_FILE: argvFile } }
+  );
+  const argvCreated = fs.existsSync(argvFile);
+  const result = parseResultLine(r.stdout);
+  const ok =
+    r.status === 1 &&
+    !argvCreated &&
+    !!result &&
+    result.exit === 1 &&
+    'harness' in result &&
+    'engine' in result &&
+    result.harness === null &&
+    result.engine === null;
+  record(
+    'c30: R7 — agent.js usage-error fallback result line carries harness and engine keys',
+    ok,
+    `status=${r.status} argvCreated=${argvCreated} result=${JSON.stringify(result)}`
+  );
+}
+
+// c32 | happy (guard) — agent.js 127 result carries harness and engine
+{
+  const MISSING_PATH = '/usr/bin:/bin';
+  const pre = spawnSync('/bin/sh', ['-c', 'command -v opencode'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: MISSING_PATH },
+  });
+  const preOk = pre.status !== null && (pre.stdout || '').trim() === '';
+  const r = spawnSync(
+    process.execPath,
+    [
+      AGENT,
+      '--engine=opencode:p/m',
+      '--cwd=' + process.cwd(),
+      '--unrestricted',
+      'noop',
+    ],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: MISSING_PATH },
+      timeout: 15_000,
+    }
+  );
+  const result = parseResultLine(r.stdout);
+  const ok =
+    preOk &&
+    r.status === 127 &&
+    !!result &&
+    result.harness === 'opencode' &&
+    result.engine === 'opencode' &&
+    result.exit === 127;
+  record(
+    'c32: R7 — agent.js 127 (opencode missing from PATH) result line has harness and engine both "opencode", exit 127',
+    ok,
+    `precondition=${preOk} status=${r.status} result=${JSON.stringify(result)}`
+  );
+}
+
+// c33 | edge (guard) — agent.js --harness= (empty value)
+{
+  const argvFile = path.join(TMP, 'c33.argv');
+  const r = spawnAgent(
+    ['--harness=', '--cwd=' + process.cwd(), '--unrestricted', PROMPT_MARKER],
+    { env: { FAKE_BEHAVIOR: 'ok', FAKE_ARGV_FILE: argvFile } }
+  );
+  const argvCreated = fs.existsSync(argvFile);
+  const stderr = r.stderr || '';
+  const ok = r.status === 1 && !argvCreated && /--harness/.test(stderr);
+  record(
+    'c33: R6 — agent.js --harness= (empty value) → usage error exit 1, no spawn, stderr names --harness',
+    ok,
+    `status=${r.status} argvCreated=${argvCreated} stderr=${stderr.slice(0, 300)}`
+  );
+}
+
+// c34 | edge (guard) — leaked-flag registry, agent.js
+{
+  const r = spawnAgent(
+    [
+      '--engine=codex',
+      '--cwd=' + process.cwd(),
+      '--unrestricted',
+      PROMPT_MARKER,
+      '--',
+      '--harness=x',
+    ],
+    { env: { FAKE_BEHAVIOR: 'ok' } }
+  );
+  const stderr = r.stderr || '';
+  const ok =
+    /agent\.js: note: .*'--harness=x'/.test(stderr) &&
+    /placed after '--'/.test(stderr);
+  record(
+    "c34: R6 — agent.js `-- --harness=x` after the prompt → stderr carries the misplaced-flag note naming '--harness=x'",
+    ok,
+    `status=${r.status} stderr=${stderr.slice(0, 300)}`
+  );
+}
+
+// c36 | edge (guard) — engine-then-harness order, agent.js
+{
+  const argvFile = path.join(TMP, 'c36.argv');
+  const r = spawnAgent(
+    [
+      '--engine=codex',
+      '--harness=codex',
+      '--cwd=' + process.cwd(),
+      '--unrestricted',
+      PROMPT_MARKER,
+    ],
+    { env: { FAKE_BEHAVIOR: 'ok', FAKE_ARGV_FILE: argvFile } }
+  );
+  const argvCreated = fs.existsSync(argvFile);
+  const stderr = r.stderr || '';
+  const ok =
+    r.status === 1 &&
+    !argvCreated &&
+    /--harness/.test(stderr) &&
+    /--engine(?![-\w])/.test(stderr);
+  record(
+    'c36: R6 — agent.js --engine=codex then --harness=codex → usage error exit 1, no spawn, stderr names both flags',
+    ok,
+    `status=${r.status} argvCreated=${argvCreated} stderr=${stderr.slice(0, 300)}`
   );
 }
 

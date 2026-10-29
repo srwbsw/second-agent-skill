@@ -7,7 +7,7 @@
  * review WITH must also be a harness you can install INTO.
  *
  * Source of truth:
- *   - engines: `SUPPORTED_ENGINES` in bin/review.js
+ *   - engines: `SUPPORTED_HARNESSES` in bin/review.js
  *   - hosts:   the `HOSTS=` line in install.sh
  * The cursor host corresponds to the `agent` engine (Cursor's CLI binary), so
  * the two names are treated as equivalent.
@@ -38,7 +38,7 @@ const EXCEPTIONS = {
 };
 
 // engine name → host name (and vice versa) normalization.
-const ENGINE_TO_HOST = { agent: 'cursor' };
+const HARNESS_TO_HOST = { agent: 'cursor' };
 
 function fail(msg) {
   console.error(`FAIL: ${msg}`);
@@ -48,22 +48,22 @@ function fail(msg) {
 const reviewJs = fs.readFileSync(path.join(root, 'bin', 'review.js'), 'utf8');
 const installSh = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
 
-// Extract SUPPORTED_ENGINES = [ '...', '...' ]
+// Extract SUPPORTED_HARNESSES = [ '...', '...' ]
 const engBlock = reviewJs.match(
-  /const\s+SUPPORTED_ENGINES\s*=\s*\[([\s\S]*?)\]/
+  /const\s+SUPPORTED_HARNESSES\s*=\s*\[([\s\S]*?)\]/
 );
-if (!engBlock) fail('SUPPORTED_ENGINES not found in bin/review.js');
+if (!engBlock) fail('SUPPORTED_HARNESSES not found in bin/review.js');
 // Engine names are conventionally lowercase; the broad class also tolerates
 // underscores/uppercase so a future rename can't slip past the parity check.
 const engines = [...engBlock[1].matchAll(/['"]([A-Za-z0-9_-]+)['"]/g)].map(
-  (m) => ENGINE_TO_HOST[m[1]] || m[1]
+  (m) => HARNESS_TO_HOST[m[1]] || m[1]
 );
 
-// F10: agent.js's own SUPPORTED_ENGINES literal (bin/AGENTS.md's header
+// F10: agent.js's own SUPPORTED_HARNESSES literal (bin/AGENTS.md's header
 // comment on both files explains why it's a separate literal const in EACH
-// entry point rather than hoisted to ./lib/engines — this test is exactly
+// entry point rather than hoisted to ./lib/harnesses — this test is exactly
 // what keeps the two copies from silently drifting apart) must be the SAME
-// SET as review.js's, raw names (no ENGINE_TO_HOST host-mapping — this is a
+// SET as review.js's, raw names (no HARNESS_TO_HOST host-mapping — this is a
 // literal-vs-literal sync check between the two files, not a host check).
 // A one-sided drift here means an engine you can review WITH is silently NOT
 // delegable via agent.js, or vice versa.
@@ -72,9 +72,9 @@ const reviewEnginesRaw = [
 ].map((m) => m[1]);
 const agentJs = fs.readFileSync(path.join(root, 'bin', 'agent.js'), 'utf8');
 const agentEngBlock = agentJs.match(
-  /const\s+SUPPORTED_ENGINES\s*=\s*\[([\s\S]*?)\]/
+  /const\s+SUPPORTED_HARNESSES\s*=\s*\[([\s\S]*?)\]/
 );
-if (!agentEngBlock) fail('SUPPORTED_ENGINES not found in bin/agent.js');
+if (!agentEngBlock) fail('SUPPORTED_HARNESSES not found in bin/agent.js');
 const agentEnginesRaw = [
   ...agentEngBlock[1].matchAll(/['"]([A-Za-z0-9_-]+)['"]/g),
 ].map((m) => m[1]);
@@ -83,16 +83,16 @@ const agentEngineSet = new Set(agentEnginesRaw);
 
 for (const e of reviewEngineSet) {
   record(
-    `agent.js SUPPORTED_ENGINES has '${e}' (present in review.js)`,
+    `agent.js SUPPORTED_HARNESSES has '${e}' (present in review.js)`,
     agentEngineSet.has(e),
-    `review.js supports '${e}' but bin/agent.js's SUPPORTED_ENGINES is missing it`
+    `review.js supports '${e}' but bin/agent.js's SUPPORTED_HARNESSES is missing it`
   );
 }
 for (const e of agentEngineSet) {
   record(
-    `review.js SUPPORTED_ENGINES has '${e}' (present in agent.js)`,
+    `review.js SUPPORTED_HARNESSES has '${e}' (present in agent.js)`,
     reviewEngineSet.has(e),
-    `agent.js supports '${e}' but bin/review.js's SUPPORTED_ENGINES doesn't — stray/renamed engine?`
+    `agent.js supports '${e}' but bin/review.js's SUPPORTED_HARNESSES doesn't — stray/renamed engine?`
   );
 }
 

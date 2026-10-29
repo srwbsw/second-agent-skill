@@ -2,15 +2,15 @@
 
 // Engine wiring shared by review.js (and, eventually, other runners):
 // per-engine safety/functional flags, pre-flight PATH checking, and the
-// buildEngineCmd() switch that turns a resolved {engine, model, ...} slot
+// buildHarnessCmd() switch that turns a resolved {engine, model, ...} slot
 // into an argv. Side-effect-free by design (no process.exit, no stdout/
 // stderr writes) so it can be reused by any entry point without dragging
 // along one caller's error-message conventions.
 //
-// NOTE: SUPPORTED_ENGINES / ENGINE_ALIASES / MODEL_REQUIRED are NOT here —
+// NOTE: SUPPORTED_HARNESSES / HARNESS_ALIASES / MODEL_REQUIRED are NOT here —
 // they stay literal consts in bin/review.js because test/host-parity.test.js
-// regex-parses `const SUPPORTED_ENGINES = [...]` straight out of that file's
-// source text, and nothing in this module needs them (buildEngineCmd/
+// regex-parses `const SUPPORTED_HARNESSES = [...]` straight out of that file's
+// source text, and nothing in this module needs them (buildHarnessCmd/
 // preflightCheck/safetyFor take an already-validated `engine` string).
 
 const { spawnSync } = require('child_process');
@@ -46,6 +46,23 @@ function whichCmd(cmd) {
   const r2 = spawnSync('which', [cmd], { encoding: 'utf8' });
   if (r2.status === 0 && r2.stdout) return r2.stdout.trim();
   return null;
+}
+
+// Does the installed opencode accept `run --dir`? Keyed on its own help text,
+// not a version string: the flag is what we depend on, and version formats
+// drift. One local `opencode run --help` call — no prompt, no model. Any
+// failure (missing binary, non-zero exit, timeout) reads as "not advertised".
+const OPENCODE_PROBE_TIMEOUT_MS = 5000;
+function opencodeRunAcceptsDir() {
+  const r = spawnSync('opencode', ['run', '--help'], {
+    encoding: 'utf8',
+    timeout: OPENCODE_PROBE_TIMEOUT_MS,
+  });
+  const help = `${r.stdout || ''}\n${r.stderr || ''}`;
+  // A flag line starts with the flag (optionally indented), with or without a
+  // short alias on either side (`-d, --dir` / `--dir, -d`). A mention inside
+  // prose or a longer flag like --directory does not count.
+  return /^\s*(?:-\w,\s*)?--dir(?:[\s,]|$)/m.test(help);
 }
 
 // Pre-flight: is `cmd` (the engine binary) on PATH? Returns null when found.
@@ -84,7 +101,7 @@ const SAFETY_FLAGS = {
   cmd: ['--permission-mode', 'plan'],
   agent: ['--plan'],
   // kiro-cli's safety model is ADDITIVE and INVERTED relative to every other
-  // engine here — see the buildEngineCmd case block below for the full
+  // engine here — see the buildHarnessCmd case block below for the full
   // explanation. This entry is defense-in-depth (--no-interactive alone
   // already auto-denies fs_write/execute_bash); it is NOT the primary gate,
   // and --unrestricted emptying it does NOT by itself grant write access.
@@ -100,14 +117,14 @@ function safetyFor(eng, unrestricted) {
 
 // Build the [cmd, args] argv for a resolved engine slot. All inputs are
 // passed in explicitly: `engine`/`model` (the resolved slot), `cwd` (needed
-// by opencode's --dir), `extraEngineArgs` (forwarded --engine-arg=/-- args),
+// by opencode's --dir), `extraHarnessArgs` (forwarded --engine-arg=/-- args),
 // `combinedPrompt` (the fully composed prompt), and `unrestricted` (gates
 // safetyFor()).
-function buildEngineCmd({
+function buildHarnessCmd({
   engine,
   model,
   cwd,
-  extraEngineArgs,
+  extraHarnessArgs,
   combinedPrompt,
   unrestricted,
   progName = 'review.js',
@@ -124,16 +141,19 @@ function buildEngineCmd({
   switch (engine) {
     case 'opencode': {
       // --dir <cwd> scopes opencode's sandbox file-access root to the review
-      // directory. Without it, opencode picks its own root and treats reads of
-      // the --cwd subtree as `external_directory`, auto-rejecting them and
-      // returning an empty review. Functional, not a safety flag — survives
+      // directory. Without it, older opencode picks its own root and treats
+      // reads of the --cwd subtree as `external_directory`, auto-rejecting them
+      // and returning an empty review. Newer opencode (v2.x) removed the flag
+      // and exits "Unrecognized flag: --dir", so it is passed only when the
+      // installed CLI advertises it. Functional, not a safety flag — survives
       // --unrestricted.
       // Model is optional: bare --engine=opencode omits --model so opencode
       // uses its configured default (mirrors kilo).
-      const opencodeArgs = ['run', '--dir', cwd];
+      const opencodeArgs = ['run'];
+      if (opencodeRunAcceptsDir()) opencodeArgs.push('--dir', cwd);
       if (model) opencodeArgs.push('--model', model);
       opencodeArgs.push(...safetyFor('opencode'));
-      opencodeArgs.push(...extraEngineArgs);
+      opencodeArgs.push(...extraHarnessArgs);
       opencodeArgs.push(combinedPrompt);
       return ['opencode', opencodeArgs];
     }
@@ -147,7 +167,7 @@ function buildEngineCmd({
         [
           ...safetyFor('gemini'),
           '--skip-trust',
-          ...extraEngineArgs,
+          ...extraHarnessArgs,
           '-p',
           combinedPrompt,
         ],
@@ -165,7 +185,7 @@ function buildEngineCmd({
         '--skip-git-repo-check',
       ];
       if (model) codexArgs.push('-m', model);
-      codexArgs.push(...extraEngineArgs);
+      codexArgs.push(...extraHarnessArgs);
       codexArgs.push(combinedPrompt);
       return ['codex', codexArgs];
     }
@@ -173,7 +193,7 @@ function buildEngineCmd({
     case 'claude': {
       const claudeArgs = ['--print', ...safetyFor('claude')];
       if (model) claudeArgs.push('--model', model);
-      claudeArgs.push(...extraEngineArgs);
+      claudeArgs.push(...extraHarnessArgs);
       claudeArgs.push(combinedPrompt);
       return ['claude', claudeArgs];
     }
@@ -181,14 +201,14 @@ function buildEngineCmd({
     case 'copilot': {
       const copilotArgs = [...safetyFor('copilot')];
       if (model) copilotArgs.push('--model', model);
-      copilotArgs.push(...extraEngineArgs, '-p', combinedPrompt);
+      copilotArgs.push(...extraHarnessArgs, '-p', combinedPrompt);
       return ['copilot', copilotArgs];
     }
 
     case 'qwen': {
       const qwenArgs = [...safetyFor('qwen')];
       if (model) qwenArgs.push('-m', model);
-      qwenArgs.push(...extraEngineArgs);
+      qwenArgs.push(...extraHarnessArgs);
       qwenArgs.push(combinedPrompt);
       return ['qwen', qwenArgs];
     }
@@ -196,7 +216,7 @@ function buildEngineCmd({
     case 'kilo': {
       const kiloArgs = ['run', ...safetyFor('kilo')];
       if (model) kiloArgs.push('-m', model);
-      kiloArgs.push(...extraEngineArgs);
+      kiloArgs.push(...extraHarnessArgs);
       kiloArgs.push(combinedPrompt);
       return ['kilo', kiloArgs];
     }
@@ -205,11 +225,11 @@ function buildEngineCmd({
       // Antigravity CLI (`agy`) — single-prompt mode via --print.
       // agy >=1.0.1 supports a --model flag (`agy models` lists choices);
       // forward it when a model is given, otherwise let agy pick its default.
-      // extraEngineArgs go BEFORE --print so the prompt stays adjacent to
+      // extraHarnessArgs go BEFORE --print so the prompt stays adjacent to
       // its flag (same pattern as gemini's -p).
       const agyArgs = [...safetyFor('agy')];
       if (model) agyArgs.push('--model', model);
-      agyArgs.push(...extraEngineArgs, '--print', combinedPrompt);
+      agyArgs.push(...extraHarnessArgs, '--print', combinedPrompt);
       return ['agy', agyArgs];
     }
 
@@ -222,7 +242,7 @@ function buildEngineCmd({
       // the claude block otherwise.
       const cmdArgs = ['--print', ...safetyFor('cmd'), '--skip-onboarding'];
       if (model) cmdArgs.push('-m', model);
-      cmdArgs.push(...extraEngineArgs);
+      cmdArgs.push(...extraHarnessArgs);
       cmdArgs.push(combinedPrompt);
       return ['cmd', cmdArgs];
     }
@@ -238,7 +258,7 @@ function buildEngineCmd({
       // --model when given.
       const agentArgs = ['--print', ...safetyFor('agent'), '--trust'];
       if (model) agentArgs.push('--model', model);
-      agentArgs.push(...extraEngineArgs);
+      agentArgs.push(...extraHarnessArgs);
       agentArgs.push(combinedPrompt);
       return ['agent', agentArgs];
     }
@@ -260,7 +280,7 @@ function buildEngineCmd({
       const kiroArgs = ['chat', '--no-interactive', ...safetyFor('kiro-cli')];
       if (unrestricted) kiroArgs.push('--trust-all-tools');
       if (model) kiroArgs.push('--model', model);
-      kiroArgs.push(...extraEngineArgs);
+      kiroArgs.push(...extraHarnessArgs);
       kiroArgs.push(combinedPrompt);
       return ['kiro-cli', kiroArgs];
     }
@@ -296,6 +316,6 @@ module.exports = {
   preflightCheck,
   SAFETY_FLAGS,
   safetyFor,
-  buildEngineCmd,
+  buildHarnessCmd,
   codexModelUnavailableNote,
 };

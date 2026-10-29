@@ -1,8 +1,8 @@
 ---
-description: Cross-engine second opinion, code review, or task delegation — runs second-agent's review.js (read-only) or agent.js (task delegation) against another AI engine
+description: Cross-harness second opinion, code review, or task delegation — runs second-agent's review.js (read-only) or agent.js (task delegation) against another AI harness
 ---
 
-Get an independent second opinion, code review, or delegate a task to another AI engine by running the `second-agent` runners: `review.js` for read-only reviews, `agent.js` for task delegation. Both spawn another engine's CLI and embed the diff/file content into the prompt — you do not call the engine CLIs directly.
+Get an independent second opinion, code review, or delegate a task to another AI harness by running the `second-agent` runners: `review.js` for read-only reviews, `agent.js` for task delegation. Both spawn another harness's CLI and embed the diff/file content into the prompt — you do not call the harness CLIs directly.
 
 User request: $ARGUMENTS
 
@@ -14,7 +14,7 @@ Before resolving $REVIEW_SCRIPT: if SECOND_AGENT_NO_NATIVE is set
 (`[ -n "${SECOND_AGENT_NO_NATIVE:-}" ]`), skip this block entirely — go
 straight to "$REVIEW_SCRIPT". Otherwise check, using a concrete signal
 (the native tool's actual name present in your own tool list — not
-inferred from conversation context), whether <engine> is the SAME
+inferred from conversation context), whether <harness> is the SAME
 runtime you are currently executing as, AND you have a native,
 model-invokable subagent-delegation mode that ACTUALLY BLOCKS
 write-capable tools (not just a curated tool list that still includes
@@ -29,20 +29,20 @@ get the exact composed prompt (diff/file embedded, self-contained notice,
 secret reminder, and answer-format envelope all included verbatim — do
 not hand-assemble this yourself). --print-prompt exiting non-zero → surface
 the error, do not substitute self-read content. Pass the printed text to
-your native subagent tool instead of spawning the engine CLI. Its raw
+your native subagent tool instead of spawning the harness CLI. Its raw
 response still carries the envelope and any preamble — extract the LAST
 complete <<<SECOND_OPINION_START>>>...<<<SECOND_OPINION_END>>> pair
 yourself (same non-empty-last-pair rule as review.js's own extraction)
 before presenting; never show the raw response verbatim.
 
 Also fall through to "$REVIEW_SCRIPT" when:
-- the request includes an explicit model/flag override for this engine
-  (e.g. --engine=claude:opus, --engine-arg=) — a native subagent inherits
+- the request includes an explicit model/flag override for this harness
+  (e.g. --harness=claude:opus, --engine-arg=) — a native subagent inherits
   your current session's config and cannot honor a different model/flag,
-- this engine is one slot inside a Fusion Model B call (single command,
-  repeated --engine=) — review.js's internal parallel-spawn loop can't
+- this harness is one slot inside a Fusion Model B call (single command,
+  repeated --harness=) — review.js's internal parallel-spawn loop can't
   reach your native tool; Fusion Model A (separate parallel tool calls
-  per engine) is unaffected — swap only that one call, present its
+  per harness) is unaffected — swap only that one call, present its
   result inline under its own heading same as any other slot, it simply
   has no log/answer file to point at.
 ```
@@ -61,14 +61,14 @@ If `$REVIEW_SCRIPT` is empty or not executable, tell the user to install second-
 
 ## 2. Run the review
 
-Pick the engine(s) from the request — default to `gemini` if none is named. Models are inline (`--engine=name:model`) and optional — bare `--engine=name` uses the engine's CLI default. Choose the diff scope from the request (default `--diff=unstaged`):
+Pick the harness(s) from the request — ask which one if none is named (no default). Models are inline (`--harness=name:model`) and optional — bare `--harness=name` uses the harness's CLI default. Choose the diff scope from the request (default `--diff=unstaged`):
 
 ```bash
-"$REVIEW_SCRIPT" --engine=<engine>[:<model>] --cwd=. --diff=unstaged "<review prompt reflecting the user's request>"
+"$REVIEW_SCRIPT" --harness=<harness>[:<model>] --cwd=. --diff=unstaged "<review prompt reflecting the user's request>"
 ```
 
 - Scope flags: `--diff=branch`, `--diff=staged`, `--diff=last-commit`, `--diff="HEAD~3..HEAD"`, or `--file=<absolute-path>` (repeatable). No flag → standalone question.
-- Multiple engines: repeat `--engine=` (fusion). Reviews run read-only by default; add `--unrestricted` only if the engine must edit/run.
+- Multiple harnesses: repeat `--harness=` (fusion). Reviews run read-only by default; add `--unrestricted` only if the harness must edit/run.
 
 ## Model and retry policy
 
@@ -76,13 +76,13 @@ Pick the engine(s) from the request — default to `gemini` if none is named. Mo
 ```
 Model binding (review.js, agent.js, and native subagent delegation):
 
-- If the user named a model (`--engine=<name>:<model>`, or stated a model in the request), keep that binding for the run. On failure (non-zero exit, exit 3, timeout 124, quota/context errors, combined-prompt size limit, or engine stderr about an unavailable model), STOP. Summarize what failed using the LOG FILE tail, stderr, and the SECOND_OPINION_RESULT / SECOND_AGENT_RESULT JSON. Do NOT automatically retry, drop the `:model` suffix, pick a different model from a list, switch engines, change scope flags, or change native subagent model — unless the user explicitly chooses one of those next steps.
+- If the user named a model (`--harness=<name>:<model>`, or stated a model in the request), keep that binding for the run. On failure (non-zero exit, exit 3, timeout 124, quota/context errors, combined-prompt size limit, or harness stderr about an unavailable model), STOP. Summarize what failed using the LOG FILE tail, stderr, and the SECOND_OPINION_RESULT / SECOND_AGENT_RESULT JSON. Do NOT automatically retry, drop the `:model` suffix, pick a different model from a list, switch harnesses, change scope flags, or change native subagent model — unless the user explicitly chooses one of those next steps.
 
-- If the user did not name a model, use bare `--engine=<name>` so the spawned CLI uses its configured default. Do NOT invent or guess model IDs (especially Codex). Use `list.js`, `agy models`, `--list-models`, etc. only when helping the user choose upfront — never to silently substitute after a failure.
+- If the user did not name a model, use bare `--harness=<name>` so the spawned CLI uses its configured default. Do NOT invent or guess model IDs (especially Codex). Use `list.js`, `agy models`, `--list-models`, etc. only when helping the user choose upfront — never to silently substitute after a failure.
 
 - Native subagent path: when the user named a model or `--engine-arg=`, use review.js (see native-shortcut fall-through). When using a subagent without a user-specified model, the host session default is fine; do not swap to a different subagent model after a failure without asking.
 
-- After a failure, offer options and wait for the user: retry the same command unchanged; name a different model; switch engine; for prompt-size limits, narrow the diff or discuss `--no-embed` — do not apply these without confirmation.
+- After a failure, offer options and wait for the user: retry the same command unchanged; name a different model; switch harness; for prompt-size limits, narrow the diff or discuss `--no-embed` — do not apply these without confirmation.
 
 review.js / agent.js may append a codex-specific log note when a pinned codex model is rejected; that is a hint for the user, not permission for the harness to re-run with a different model.
 ```
@@ -90,11 +90,11 @@ review.js / agent.js may append a codex-specific log note when a pinned codex mo
 
 ## 3. Present the result
 
-In a non-TTY run the runner writes engine output to a log file and prints a `LOG FILE:` path (do not pipe to `tail`/`head`). Read that file, extract the text between the LAST `<<<SECOND_OPINION_START>>>` and `<<<SECOND_OPINION_END>>>` markers, and present it under a clear heading (e.g. `## Gemini's take`). Exit code `3` means the engine produced no usable output — stop, report from the log and result JSON, then follow the model policy above (do not retry or switch on your own).
+In a non-TTY run the runner writes harness output to a log file and prints a `LOG FILE:` path (do not pipe to `tail`/`head`). Read that file, extract the text between the LAST `<<<SECOND_OPINION_START>>>` and `<<<SECOND_OPINION_END>>>` markers, and present it under a clear heading (e.g. `## Gemini's take`). Exit code `3` means the harness produced no usable output — stop, report from the log and result JSON, then follow the model policy above (do not retry or switch on your own).
 
 ## 4. Task mode — delegate a task instead of reviewing it
 
-If the request is to have the engine DO something (write tests, fix a bug, add a feature, refactor) instead of just commenting, use `agent.js` instead of `review.js`. Resolve it the same PATH-first way, with its own env override:
+If the request is to have the harness DO something (write tests, fix a bug, add a feature, refactor) instead of just commenting, use `agent.js` instead of `review.js`. Resolve it the same PATH-first way, with its own env override:
 
 ```bash
 AGENT_SCRIPT="${SECOND_AGENT_TASK:-$(command -v agent.js || true)}"
@@ -107,16 +107,16 @@ Run it, then read the result:
 
 ```bash
 # 1. Run (AGENT_SCRIPT resolved by the snippet above). --unrestricted is a
-#    deliberate acknowledgment that the engine may edit files and run
+#    deliberate acknowledgment that the harness may edit files and run
 #    commands inside --cwd — there is no read-only mode for agent.js:
-"$AGENT_SCRIPT" --engine=<engine> --cwd=<repo> --unrestricted "<task prompt>"
+"$AGENT_SCRIPT" --harness=<harness> --cwd=<repo> --unrestricted "<task prompt>"
 # 2. Result: stdout prints a CHANGED FILES: block, then `ANSWER FILE: <path>`;
 #    the last line is a SECOND_AGENT_RESULT JSON (includes `changes`).
-#    Read the ANSWER FILE with the Read tool for the engine's report.
+#    Read the ANSWER FILE with the Read tool for the harness's report.
 #    No ANSWER FILE line -> read the LOG FILE path instead.
 ```
 
-`--unrestricted` is REQUIRED (hard gate, exit 1 without it) — there is no read-only mode for `agent.js`. Exactly one engine per call, no fusion. Default task prompt (replace the first line with the actual task) when the request has no more specific description ready:
+`--unrestricted` is REQUIRED (hard gate, exit 1 without it) — there is no read-only mode for `agent.js`. Exactly one harness per call, no fusion. Default task prompt (replace the first line with the actual task) when the request has no more specific description ready:
 
 ```
 <task statement — what to build/fix/change, and why>
