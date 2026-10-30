@@ -5,8 +5,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/srwbsw/second-agent-skill/main/install.sh | bash
 #
 # Auto-detects which agent CLIs are present and installs into each. The set of
-# supported HOST harnesses equals the set of supported ENGINES (see the
-# "Host parity" invariant in skills/AGENTS.md) — every engine you can get a
+# supported HOST harnesses equals the set of supported HARNESSES (see the
+# "Host parity" invariant in skills/AGENTS.md) — every harness you can get a
 # second opinion FROM or delegate a task TO is also a harness you can install
 # INTO:
 #
@@ -35,8 +35,8 @@ CLONE_HOME="${HOME}/.second-agent-skill"
 OLD_CLONE_HOME="${HOME}/.second-opinion-skill"
 XDG="${XDG_CONFIG_HOME:-$HOME/.config}"
 
-# Canonical host list — MUST equal SUPPORTED_ENGINES in bin/review.js
-# (cursor == the `agent` engine). test/host-parity.test.js enforces this.
+# Canonical host list — MUST equal SUPPORTED_HARNESSES in bin/review.js
+# (cursor == the `agent` harness). test/host-parity.test.js enforces this.
 HOSTS="claude codex cursor opencode gemini qwen copilot agy kilo cmd"
 
 ONLY=""
@@ -351,6 +351,6 @@ echo
 echo "Runners resolve via 'command -v review.js' / 'command -v agent.js'."
 echo "Trigger a review or task per harness:"
 echo "  Claude/Codex: review/task skills load as plugins"
-echo "  Cursor: ask for 'a second opinion …' or 'have Cursor fix/refactor …'"
+echo "  Cursor: name another harness, e.g. 'ask Codex for a second opinion …' or 'have Codex fix/refactor …'"
 echo "  opencode/kilo/gemini/qwen: run '/second-agent …'"
 echo "  copilot/agy/cmd: invoke the second-agent skill"

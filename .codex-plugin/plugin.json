@@ -1,7 +1,7 @@
 {
   "name": "second-agent-skill",
   "version": "4.2.0",
-  "description": "Multi-engine second agent — delegate code reviews, second opinions, or engineering tasks (write tests, fix bugs, refactor) to Gemini, opencode, Codex, Claude Code, GitHub Copilot, Qwen, Kilo, Antigravity (agy), Command Code (cmd), or Cursor.",
+  "description": "Multi-harness second agent — delegate code reviews, second opinions, or engineering tasks (write tests, fix bugs, refactor) to Gemini, opencode, Codex, Claude Code, GitHub Copilot, Qwen, Kilo, Antigravity (agy), Command Code (cmd), or Cursor. Triggers only when another harness is named or /second-agent is invoked explicitly.",
   "author": {
     "name": "Sirawit Bongsuwan",
     "email": "main@srwbsw.com",
@@ -23,14 +23,14 @@
     "second-opinion",
     "second-agent",
     "ai-review",
-    "multi-engine",
+    "multi-harness",
     "claude-code"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Second Agent",
-    "shortDescription": "Multi-engine second agent — reviews and task delegation",
-    "longDescription": "Routes second opinions, code reviews, and engineering tasks (write tests, fix bugs, refactor) to Gemini, opencode, Codex, Claude Code, GitHub Copilot, Qwen, Kilo, Antigravity (agy), Command Code (cmd), or Cursor.",
+    "shortDescription": "Multi-harness second agent — reviews and task delegation",
+    "longDescription": "Routes second opinions, code reviews, and engineering tasks (write tests, fix bugs, refactor) to Gemini, opencode, Codex, Claude Code, GitHub Copilot, Qwen, Kilo, Antigravity (agy), Command Code (cmd), or Cursor, only when another harness is named or /second-agent is invoked explicitly.",
     "developerName": "Sirawit Bongsuwan",
     "category": "Productivity",
     "capabilities": [
@@ -38,9 +38,9 @@
     ],
     "websiteURL": "https://github.com/srwbsw/second-agent-skill",
     "defaultPrompt": [
-      "Get a second opinion on this",
+      "Ask Gemini for a second opinion on this",
       "Review this diff for issues",
-      "Ask Codex to review this",
+      "Ask Claude Code to review this",
       "Have Gemini write tests for this and run them"
     ]
   }

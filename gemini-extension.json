@@ -1,5 +1,5 @@
 {
   "name": "second-agent-skill",
   "version": "2.17.0",
-  "description": "Cross-engine second agent — delegate code reviews, second opinions, or engineering tasks (write tests, fix bugs, refactor) to another AI engine. Adds a /second-agent command that runs review.js (read-only) or agent.js (task delegation) against another engine (Gemini, Codex, Claude, opencode, …)."
+  "description": "Cross-harness second agent — delegate code reviews, second opinions, or engineering tasks (write tests, fix bugs, refactor) to another harness, only when that harness is named or /second-agent is invoked explicitly. Adds a /second-agent command that runs review.js (read-only) or agent.js (task delegation) against another harness (Gemini, Codex, Claude, opencode, …)."
 }

@@ -47,19 +47,20 @@ const fs = require('fs');
 const path = require('path');
 const { shellQuote } = require('./shell-quote');
 const { isLikelyEnvSecret } = require('./env-guard');
-const engines = require('./lib/engines');
+const harnesses = require('./lib/harnesses');
 const content = require('./lib/content');
 const envelope = require('./lib/envelope');
 const run = require('./lib/run');
 
 let engine = ''; // resolved single-engine name (post-validation)
 let model = ''; // resolved single-engine model (post-validation)
-const rawEngineSpecs = []; // every --engine= occurrence, comma-split: each item is 'name' or 'name:model'
+const rawHarnessSpecs = []; // every --engine=/--harness= occurrence, comma-split: each item is 'name' or 'name:model'
+let selectorFlag = null; // the selector spelling this call uses: '--engine' or '--harness'
 let cwd = process.cwd();
 let diffSpec = '';
 const filePaths = []; // every --file= occurrence; multiple files are all embedded
 let prompt = '';
-let extraEngineArgs = [];
+let extraHarnessArgs = [];
 let showHelp = false;
 let logArg = null; // null = unset, '' = auto-disabled with --log=-, string = explicit path
 let timeoutArg = null; // null = use default, number = seconds, 0 = no timeout
@@ -104,6 +105,8 @@ function printHelp() {
       '  --engine=gemini --engine=codex:gpt-5       fusion: repeat the flag',
       '  --engine=opencode:a --engine=opencode:b    same engine, two models',
       '  --engine=a,b,c                             CSV shorthand',
+      '  --harness=<name>[:<model>]                 same selector under the harness name',
+      '                                             (use one of --harness / --engine per call)',
       '',
       'Fusion output:',
       '  Each slot gets its own log file under $TMPDIR/second-opinion-fusion-<ts>/.',
@@ -140,7 +143,7 @@ function printHelp() {
       '  The LAST stdout line is always a one-line JSON result — also on',
       '  launch failures (missing binary → exit 127, spawn errors); only',
       '  usage errors (bad flags/arguments) exit before it:',
-      '    SECOND_OPINION_RESULT: {"engine","model","exit","log","answer","timeout"}',
+      '    SECOND_OPINION_RESULT: {"harness","engine","model","exit","log","answer","timeout"}',
       '  In fusion mode: {"fusion":true,"slots":[{…same keys per slot}]}',
       '',
       'Liveness:',
@@ -190,6 +193,7 @@ function printHelp() {
 // purpose: an engine may legitimately accept its own --help after `--`.
 const REVIEW_JS_PREFIX_FLAGS = [
   '--engine=',
+  '--harness=',
   '--engine-arg=',
   '--model=',
   '--cwd=',
@@ -237,20 +241,36 @@ for (let i = 0; i < argv.length; i += 1) {
     break;
   }
   if (arg === '--') {
-    extraEngineArgs = argv.slice(i + 1);
+    extraHarnessArgs = argv.slice(i + 1);
     break;
   }
   if (arg.startsWith('--engine-arg='))
-    extraEngineArgs.push(arg.slice('--engine-arg='.length));
-  else if (arg.startsWith('--engine=')) {
-    // Repeatable. Each --engine= may also contain a comma-separated list;
-    // each piece is 'name' or 'name:model'. Collect raw for later parsing.
-    const v = arg.slice('--engine='.length);
+    extraHarnessArgs.push(arg.slice('--engine-arg='.length));
+  else if (arg.startsWith('--engine=') || arg.startsWith('--harness=')) {
+    // --harness= is the same selector under the harness name; --engine= stays
+    // as the alias. One call uses one spelling, so mixing them is a usage
+    // error. Repeatable. Each may also contain a comma-separated list; each
+    // piece is 'name' or 'name:model'. Collect raw for later parsing.
+    const flag = arg.startsWith('--harness=') ? '--harness' : '--engine';
+    if (selectorFlag && selectorFlag !== flag) {
+      process.stderr.write(
+        'review.js: cannot combine --harness and --engine in one call; use one selector flag\n'
+      );
+      process.exit(1);
+    }
+    selectorFlag = flag;
+    const v = arg.slice(flag.length + 1);
+    if (flag === '--harness' && v === '') {
+      process.stderr.write(
+        'review.js: --harness= needs a value, e.g. --harness=codex\n'
+      );
+      process.exit(1);
+    }
     for (const piece of v
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)) {
-      rawEngineSpecs.push(piece);
+      rawHarnessSpecs.push(piece);
     }
   } else if (arg.startsWith('--model=')) {
     process.stderr.write(
@@ -289,13 +309,13 @@ if (showHelp) {
   process.exit(0);
 }
 
-// Kept here (not hoisted to ./lib/engines) rather than merely re-exported:
+// Kept here (not hoisted to ./lib/harnesses) rather than merely re-exported:
 // test/host-parity.test.js regex-parses this exact array literal straight
 // out of this file's source text, so it has to stay a physical `const NAME =
-// [ ... ]` declaration here, not a destructured reference. buildEngineCmd/
-// preflightCheck/safetyFor (./lib/engines) don't need these three — they're
+// [ ... ]` declaration here, not a destructured reference. buildHarnessCmd/
+// preflightCheck/safetyFor (./lib/harnesses) don't need these three — they're
 // arg-parsing/validation concerns review.js keeps.
-const SUPPORTED_ENGINES = [
+const SUPPORTED_HARNESSES = [
   'opencode',
   'gemini',
   'codex',
@@ -314,13 +334,13 @@ const SUPPORTED_ENGINES = [
 // "cursor" / "cursor-agent" — accept all three. kiro-cli similarly gets the
 // shorter "kiro" alias. Applied in the slot parser below, so aliases flow
 // through the rest of the script as the canonical name.
-const ENGINE_ALIASES = {
+const HARNESS_ALIASES = {
   cursor: 'agent',
   'cursor-agent': 'agent',
   kiro: 'kiro-cli',
 };
 
-if (rawEngineSpecs.length === 0) {
+if (rawHarnessSpecs.length === 0) {
   printHelp();
   process.exit(1);
 }
@@ -336,7 +356,7 @@ const MODEL_REQUIRED = new Set([]);
 // different models is a valid pair of fusion slots.
 const slots = [];
 const seen = new Set();
-for (const piece of rawEngineSpecs) {
+for (const piece of rawHarnessSpecs) {
   const idx = piece.indexOf(':');
   let eng, mdl;
   if (idx >= 0) {
@@ -344,7 +364,7 @@ for (const piece of rawEngineSpecs) {
     mdl = piece.slice(idx + 1);
     if (!eng || !mdl) {
       process.stderr.write(
-        `review.js: --engine='${piece}' has empty engine or model around ':'\n`
+        `review.js: ${selectorFlag || '--engine'}='${piece}' has empty engine or model around ':'\n`
       );
       process.exit(1);
     }
@@ -354,11 +374,11 @@ for (const piece of rawEngineSpecs) {
   }
   // Normalize friendly aliases (cursor, cursor-agent) to their canonical
   // engine (agent) before validation and dedup.
-  eng = ENGINE_ALIASES[eng] || eng;
-  if (!SUPPORTED_ENGINES.includes(eng)) {
+  eng = HARNESS_ALIASES[eng] || eng;
+  if (!SUPPORTED_HARNESSES.includes(eng)) {
     process.stderr.write(`review.js: unknown engine '${eng}'\n`);
     process.stderr.write(
-      `Supported engines: ${SUPPORTED_ENGINES.join(', ')}\n`
+      `Supported engines: ${SUPPORTED_HARNESSES.join(', ')}\n`
     );
     process.exit(1);
   }
@@ -372,7 +392,7 @@ for (const piece of rawEngineSpecs) {
 for (const s of slots) {
   if (MODEL_REQUIRED.has(s.engine) && !s.model) {
     process.stderr.write(
-      `review.js: engine '${s.engine}' requires a model. Use '--engine=${s.engine}:<provider/model>'.\n`
+      `review.js: engine '${s.engine}' requires a model. Use '${selectorFlag || '--engine'}=${s.engine}:<provider/model>'.\n`
     );
     process.exit(1);
   }
@@ -382,7 +402,7 @@ for (const s of slots) {
 // --engine-arg=), warn before we dispatch. In fusion mode this runs in the
 // parent (real stderr) and again in each child (stderr ignored), so the
 // caller sees exactly one note.
-warnMisplacedReviewFlags(extraEngineArgs);
+warnMisplacedReviewFlags(extraHarnessArgs);
 
 const isFusion = slots.length > 1;
 
@@ -472,7 +492,7 @@ const concurrency = parseConcurrencyArg(concurrencyArg);
 // live in ./lib/content — shared with any other runner that composes a
 // prompt from a diff/file the same way.
 
-// `combinedPrompt` is consumed deep inside buildEngineCmd(). In single-engine
+// `combinedPrompt` is consumed deep inside buildHarnessCmd(). In single-engine
 // mode we build it now; in fusion mode the children build their own copies
 // (since each may differ if they ever specialize — but for now identical),
 // so we skip the work here and let runFusion() spawn children that go
@@ -576,13 +596,13 @@ function resolveLogPath() {
   return path.join(tmp, `second-opinion-${engine}-${Date.now()}.log`);
 }
 
-// whichCmd/preflightCheck live in ./lib/engines (side-effect-free there —
+// whichCmd/preflightCheck live in ./lib/harnesses (side-effect-free there —
 // this file decides how to report/exit on a launch failure; see the
 // preflight check inside main()).
 
-// chooseSpawn / runEngine / signum (PTY selection, heartbeat/timeout
+// chooseSpawn / runHarness / signum (PTY selection, heartbeat/timeout
 // lifecycle, signal-name mapping) live in ./lib/run. SAFETY_FLAGS/
-// safetyFor/buildEngineCmd live in ./lib/engines.
+// safetyFor/buildHarnessCmd live in ./lib/harnesses.
 
 // ANSWER_START_RE/ANSWER_END_RE/extractLastAnswer live in ./lib/envelope.
 // writeStdoutSync lives in ./lib/run.
@@ -595,29 +615,29 @@ async function main() {
   if (unrestricted) {
     process.stderr.write(
       `review.js: --unrestricted — dropping safety flags for ${engine} ` +
-        `(${engines.SAFETY_FLAGS[engine].join(' ')}). The engine may edit files or run ` +
+        `(${harnesses.SAFETY_FLAGS[engine].join(' ')}). The engine may edit files or run ` +
         'arbitrary commands.\n'
     );
   }
 
-  const [cmd, args] = engines.buildEngineCmd({
+  const [cmd, args] = harnesses.buildHarnessCmd({
     engine,
     model,
     cwd,
-    extraEngineArgs,
+    extraHarnessArgs,
     combinedPrompt,
     unrestricted,
   });
 
   // Pre-flight: fail fast with a clear error if the engine CLI isn't on
   // PATH, rather than letting spawn surface ENOENT mid-stream. Side-effect
-  // free in engines.preflightCheck (returns a diagnostic instead of writing
+  // free in harnesses.preflightCheck (returns a diagnostic instead of writing
   // to stderr/exiting itself) — this is the one call site, so it reports and
   // exits right here.
-  const missing = engines.preflightCheck(cmd, engine);
+  const missing = harnesses.preflightCheck(cmd, engine);
   if (missing) {
     process.stderr.write(
-      `review.js: '${cmd}' not found on PATH. Cannot run --engine=${engine}.${missing.hint}\n`
+      `review.js: '${cmd}' not found on PATH. Cannot run ${selectorFlag || '--engine'}=${engine}.${missing.hint}\n`
     );
     // Launch failures still emit the machine-readable result line (always
     // the last stdout line — see emitResultAndExit below). No log file
@@ -626,6 +646,7 @@ async function main() {
     run.writeStdoutSync(
       `SECOND_OPINION_RESULT: ${JSON.stringify({
         engine,
+        harness: engine,
         model: model || null,
         exit: 127,
         log: null,
@@ -693,13 +714,13 @@ async function main() {
     process.stderr.write(`review.js: logging to ${logPath}\n`);
   }
 
-  const result = await run.runEngine(cmd, args, logStream, {
+  const result = await run.runHarness(cmd, args, logStream, {
     cwd,
     timeoutSec,
     heartbeatSec,
     started,
   });
-  const codexModelNote = engines.codexModelUnavailableNote(
+  const codexModelNote = harnesses.codexModelUnavailableNote(
     engine,
     model,
     result
@@ -812,6 +833,7 @@ async function main() {
     run.writeStdoutSync(
       `SECOND_OPINION_RESULT: ${JSON.stringify({
         engine,
+        harness: engine,
         model: model || null,
         exit: exitCode,
         // Planned-but-never-created path → null: when the log could not be
@@ -908,6 +930,7 @@ async function runFusion() {
         fusion: true,
         slots: slots.map((s) => ({
           engine: s.engine,
+          harness: s.engine,
           model: s.model || null,
           exit: 1,
           log: null,
@@ -924,7 +947,7 @@ async function runFusion() {
   // --unrestricted, --no-embed, --no-wrap, --timeout, --heartbeat,
   // --engine-arg=..., --, the prompt) flows through unchanged.
   //
-  // Args after a bare `--` are extraEngineArgs and must be passed through
+  // Args after a bare `--` are extraHarnessArgs and must be passed through
   // verbatim — they may legitimately contain '--engine=', '--model=', or
   // '--log=' tokens intended for the engine CLI itself, not review.js.
   const stripped = [];
@@ -939,6 +962,7 @@ async function runFusion() {
     if (
       !pastDoubleDash &&
       (a.startsWith('--engine=') ||
+        a.startsWith('--harness=') ||
         a.startsWith('--model=') ||
         a.startsWith('--log=') ||
         a.startsWith('--concurrency='))
@@ -1132,6 +1156,7 @@ async function runFusion() {
     }
     return {
       engine: r.slot.engine,
+      harness: r.slot.engine,
       model: r.slot.model || null,
       exit: r.code,
       log,

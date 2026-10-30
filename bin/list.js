@@ -115,12 +115,14 @@ const DATED_PREVIEW = /-preview-\d{2}-\d{2,4}$|-\d{4}-\d{2}-\d{2}$/;
 // Detect free models: line ending in 'free' (handles ':free' and '/free')
 const FREE_MODEL = /free$/;
 
-const SUPPORTED_ENGINES = ['opencode', 'kilo'];
+const SUPPORTED_HARNESSES = ['opencode', 'kilo'];
 const KNOWN_COMMANDS = ['providers', 'models'];
 
-if (!SUPPORTED_ENGINES.includes(engine)) {
+if (!SUPPORTED_HARNESSES.includes(engine)) {
   process.stderr.write(`list.js: unknown engine '${engine}'\n`);
-  process.stderr.write(`Supported engines: ${SUPPORTED_ENGINES.join(', ')}\n`);
+  process.stderr.write(
+    `Supported engines: ${SUPPORTED_HARNESSES.join(', ')}\n`
+  );
   process.exit(1);
 }
 

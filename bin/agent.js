@@ -62,14 +62,14 @@ const fs = require('fs');
 const path = require('path');
 const { shellQuote } = require('./shell-quote');
 const { isLikelyEnvSecret } = require('./env-guard');
-const engines = require('./lib/engines');
+const harnesses = require('./lib/harnesses');
 const content = require('./lib/content');
 const envelope = require('./lib/envelope');
 const run = require('./lib/run');
 
-// Kept as a literal const here (not hoisted to ./lib/engines), mirroring
-// review.js — see bin/lib/engines.js's header comment for why.
-const SUPPORTED_ENGINES = [
+// Kept as a literal const here (not hoisted to ./lib/harnesses), mirroring
+// review.js — see bin/lib/harnesses.js's header comment for why.
+const SUPPORTED_HARNESSES = [
   'opencode',
   'gemini',
   'codex',
@@ -86,7 +86,7 @@ const SUPPORTED_ENGINES = [
 // Friendly engine-name aliases, same as review.js. Cursor's binary is
 // `agent`, but users naturally reach for "cursor" / "cursor-agent". kiro-cli
 // similarly gets the shorter "kiro" alias.
-const ENGINE_ALIASES = {
+const HARNESS_ALIASES = {
   cursor: 'agent',
   'cursor-agent': 'agent',
   kiro: 'kiro-cli',
@@ -127,6 +127,7 @@ process.on('exit', (code) => {
     run.writeStdoutSync(
       `SECOND_AGENT_RESULT: ${JSON.stringify({
         engine: engine || null,
+        harness: engine || null,
         model: model || null,
         exit: code,
         log: null,
@@ -140,12 +141,13 @@ process.on('exit', (code) => {
   }
 });
 
-const rawEngineSpecs = []; // every --engine= occurrence, comma-split
+const rawHarnessSpecs = []; // every --engine=/--harness= occurrence, comma-split
+let selectorFlag = null; // the selector spelling this call uses: '--engine' or '--harness'
 let cwd = process.cwd();
 let diffSpec = '';
 const filePaths = [];
 let prompt = '';
-let extraEngineArgs = [];
+let extraHarnessArgs = [];
 let showHelp = false;
 let logArg = null;
 let timeoutArg = null;
@@ -187,6 +189,8 @@ function printHelp() {
       'Engine / model:',
       '  --engine=gemini            default model',
       '  --engine=codex:gpt-5       inline model',
+      '  --harness=<name>[:<model>]  same selector under the harness name',
+      '                             (use one of --harness / --engine per call)',
       '',
       'Context (optional; embedded ahead of the task, framed as "Use the',
       'context above for the task below" — never as review.js\'s',
@@ -244,6 +248,7 @@ function printHelp() {
 // guard. Non-fatal: the token IS still forwarded.
 const AGENT_JS_PREFIX_FLAGS = [
   '--engine=',
+  '--harness=',
   '--engine-arg=',
   '--model=',
   '--cwd=',
@@ -282,18 +287,35 @@ for (let i = 0; i < argv.length; i += 1) {
     break;
   }
   if (arg === '--') {
-    extraEngineArgs = argv.slice(i + 1);
+    extraHarnessArgs = argv.slice(i + 1);
     break;
   }
   if (arg.startsWith('--engine-arg='))
-    extraEngineArgs.push(arg.slice('--engine-arg='.length));
-  else if (arg.startsWith('--engine=')) {
-    const v = arg.slice('--engine='.length);
+    extraHarnessArgs.push(arg.slice('--engine-arg='.length));
+  else if (arg.startsWith('--engine=') || arg.startsWith('--harness=')) {
+    // --harness= is the same selector under the harness name; --engine= stays
+    // as the alias. One call uses one spelling, so mixing them is a usage
+    // error. Collect the raw piece(s) for later parsing.
+    const flag = arg.startsWith('--harness=') ? '--harness' : '--engine';
+    if (selectorFlag && selectorFlag !== flag) {
+      process.stderr.write(
+        'agent.js: cannot combine --harness and --engine in one call; use one selector flag\n'
+      );
+      process.exit(1);
+    }
+    selectorFlag = flag;
+    const v = arg.slice(flag.length + 1);
+    if (flag === '--harness' && v === '') {
+      process.stderr.write(
+        'agent.js: --harness= needs a value, e.g. --harness=codex\n'
+      );
+      process.exit(1);
+    }
     for (const piece of v
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)) {
-      rawEngineSpecs.push(piece);
+      rawHarnessSpecs.push(piece);
     }
   } else if (arg.startsWith('--model=')) {
     process.stderr.write(
@@ -346,7 +368,7 @@ if (showHelp) {
   process.exit(0);
 }
 
-if (rawEngineSpecs.length === 0) {
+if (rawHarnessSpecs.length === 0) {
   printHelp();
   process.exit(1);
 }
@@ -354,7 +376,7 @@ if (rawEngineSpecs.length === 0) {
 // Exactly one engine slot — no fusion. Checked BEFORE resolving/validating
 // the slot(s) so a multi-engine request always gets this message, even when
 // --unrestricted is also missing.
-if (rawEngineSpecs.length > 1) {
+if (rawHarnessSpecs.length > 1) {
   process.stderr.write(
     'agent.js: one engine per task; run sequential invocations for more.\n'
   );
@@ -363,7 +385,7 @@ if (rawEngineSpecs.length > 1) {
 
 // Resolve the single spec into {engine, model}.
 {
-  const piece = rawEngineSpecs[0];
+  const piece = rawHarnessSpecs[0];
   const idx = piece.indexOf(':');
   let eng, mdl;
   if (idx >= 0) {
@@ -371,7 +393,7 @@ if (rawEngineSpecs.length > 1) {
     mdl = piece.slice(idx + 1);
     if (!eng || !mdl) {
       process.stderr.write(
-        `agent.js: --engine='${piece}' has empty engine or model around ':'\n`
+        `agent.js: ${selectorFlag || '--engine'}='${piece}' has empty engine or model around ':'\n`
       );
       process.exit(1);
     }
@@ -379,11 +401,11 @@ if (rawEngineSpecs.length > 1) {
     eng = piece;
     mdl = '';
   }
-  eng = ENGINE_ALIASES[eng] || eng;
-  if (!SUPPORTED_ENGINES.includes(eng)) {
+  eng = HARNESS_ALIASES[eng] || eng;
+  if (!SUPPORTED_HARNESSES.includes(eng)) {
     process.stderr.write(`agent.js: unknown engine '${eng}'\n`);
     process.stderr.write(
-      `Supported engines: ${SUPPORTED_ENGINES.join(', ')}\n`
+      `Supported engines: ${SUPPORTED_HARNESSES.join(', ')}\n`
     );
     process.exit(1);
   }
@@ -449,7 +471,7 @@ const heartbeatSec = parseSecondsArg(
   DEFAULT_HEARTBEAT_SEC
 );
 
-warnMisplacedAgentFlags(extraEngineArgs);
+warnMisplacedAgentFlags(extraHarnessArgs);
 
 // ─── Prompt composition (task framing, NOT review) ─────────────────────────
 // You are performing a delegated engineering task, not producing a review.
@@ -766,11 +788,11 @@ async function main() {
       `run commands in ${cwd}.\n`
   );
 
-  const [cmd, args] = engines.buildEngineCmd({
+  const [cmd, args] = harnesses.buildHarnessCmd({
     engine,
     model,
     cwd,
-    extraEngineArgs,
+    extraHarnessArgs,
     combinedPrompt,
     unrestricted: true,
     progName: 'agent.js',
@@ -778,15 +800,16 @@ async function main() {
 
   // Pre-flight: fail fast if the engine CLI isn't on PATH. No git snapshot
   // is taken here — nothing could have changed since nothing ran.
-  const missing = engines.preflightCheck(cmd, engine);
+  const missing = harnesses.preflightCheck(cmd, engine);
   if (missing) {
     process.stderr.write(
-      `agent.js: '${cmd}' not found on PATH. Cannot run --engine=${engine}.${missing.hint}\n`
+      `agent.js: '${cmd}' not found on PATH. Cannot run ${selectorFlag || '--engine'}=${engine}.${missing.hint}\n`
     );
     resultEmitted = true;
     run.writeStdoutSync(
       `SECOND_AGENT_RESULT: ${JSON.stringify({
         engine,
+        harness: engine,
         model: model || null,
         exit: 127,
         log: null,
@@ -877,7 +900,7 @@ async function main() {
     process.stderr.write(`agent.js: logging to ${logPath}\n`);
   }
 
-  const result = await run.runEngine(cmd, args, logStream, {
+  const result = await run.runHarness(cmd, args, logStream, {
     cwd,
     timeoutSec,
     heartbeatSec,
@@ -899,7 +922,7 @@ async function main() {
     // sawEnvelope is never even read, don't pay for unbounded memory.
     strictEnvelope: true,
   });
-  const codexModelNote = engines.codexModelUnavailableNote(
+  const codexModelNote = harnesses.codexModelUnavailableNote(
     engine,
     model,
     result
@@ -1050,6 +1073,7 @@ async function main() {
     run.writeStdoutSync(
       `SECOND_AGENT_RESULT: ${JSON.stringify({
         engine,
+        harness: engine,
         model: model || null,
         exit: exitCode,
         log: logUsable ? logPath : null,

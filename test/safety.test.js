@@ -21,7 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const reviewScript = path.join(__dirname, '..', 'bin', 'lib', 'engines.js');
+const reviewScript = path.join(__dirname, '..', 'bin', 'lib', 'harnesses.js');
 
 // Flags that MUST live inside the SAFETY_FLAGS gate (stripped by --unrestricted).
 const requiredSafetyFlags = {

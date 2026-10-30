@@ -5,14 +5,14 @@
     "email": "main@srwbsw.com"
   },
   "metadata": {
-    "description": "Multi-engine second agent — delegate reviews, second opinions, or engineering tasks to Gemini, opencode, Codex, Claude Code, Copilot, Qwen, Kilo, agy, cmd, or Cursor",
+    "description": "Multi-harness second agent — delegate reviews, second opinions, or engineering tasks to Gemini, opencode, Codex, Claude Code, Copilot, Qwen, Kilo, agy, cmd, or Cursor; triggers only when another harness is named or /second-agent is invoked explicitly",
     "version": "4.2.0"
   },
   "plugins": [
     {
       "name": "second-agent-skill",
       "source": "./",
-      "description": "Multi-engine second agent — delegate reviews, second opinions, or tasks to Gemini, opencode, Codex, Claude Code, Copilot, Qwen, Kilo, agy, cmd, Cursor",
+      "description": "Multi-harness second agent — delegate reviews, second opinions, or tasks to Gemini, opencode, Codex, Claude Code, Copilot, Qwen, Kilo, agy, cmd, Cursor",
       "version": "4.2.0",
       "category": "development",
       "keywords": [
@@ -28,7 +28,7 @@
         "second-opinion",
         "second-agent",
         "ai-review",
-        "multi-engine",
+        "multi-harness",
         "claude-code"
       ]
     }

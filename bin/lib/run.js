@@ -9,7 +9,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const { shellQuote } = require('../shell-quote');
-const { whichCmd } = require('./engines');
+const { whichCmd } = require('./harnesses');
 const {
   createEnvelopeWatcher,
   createStrictEnvelopeWatcher,
@@ -106,7 +106,7 @@ function chooseSpawn(cmd, args) {
 // `opts` = { cwd, timeoutSec, heartbeatSec, started } — passed in explicitly
 // (rather than read from module-level state) so this module has nothing
 // shared across entry points to get out of sync.
-function runEngine(cmd, args, logStream, opts) {
+function runHarness(cmd, args, logStream, opts) {
   const {
     cwd,
     timeoutSec,
@@ -209,7 +209,7 @@ function runEngine(cmd, args, logStream, opts) {
     // SIGKILL regardless of which signal was actually received) and the
     // timeout path's own SIGTERM/SIGKILL grace below. One-shot (a second
     // Ctrl-C is a no-op here, same as the fusion parent's `forwardedSignal`
-    // guard) — registered once per runEngine() call right after the child
+    // guard) — registered once per runHarness() call right after the child
     // exists (below), removed in settle(), the single funnel every
     // resolution path (normal exit, spawn error, non-ENOENT child error)
     // already goes through, so there is no listener leak.
@@ -429,7 +429,7 @@ module.exports = {
   TAIL_BYTES_ON_EXIT,
   KILL_GRACE_MS,
   signum,
-  runEngine,
+  runHarness,
   writeFdSync,
   writeStdoutSync,
   writeStderrSync,

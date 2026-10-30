@@ -1,24 +1,111 @@
 #!/usr/bin/env node
-// Fake `opencode` binary for testing review.js flag passthrough.
+// Fake `opencode` binary for testing review.js / agent.js flag passthrough.
 // Dumps its argv (newline-joined) to $FAKE_ARGV_FILE when set, then prints an
 // envelope-wrapped ok marker and exits 0. Lets tests assert which flags
 // review.js forwards to the opencode CLI (notably --dir <cwd>, which scopes
 // the sandbox's file-access root so subtree reads aren't "external").
+//
+// Help probe: argv EXACTLY ['run', '--help'] is the capability probe. It
+// prints per $FAKE_OPENCODE_HELP (unset/nodir | dir | stderr-dir | prose-dir |
+// directory-flag | alias-long | alias-short | error | hang), never writes $FAKE_ARGV_FILE, and appends
+// its argv (newline-joined + trailing newline) to $FAKE_HELP_LOG when set.
 
 'use strict';
 
 const fs = require('fs');
 
-const file = process.env.FAKE_ARGV_FILE;
-if (file) {
-  try {
-    fs.writeFileSync(file, process.argv.slice(2).join('\n') + '\n');
-  } catch {
-    /* best-effort; test will fail on its own assertion if this is missing */
-  }
-}
+const args = process.argv.slice(2);
 
-process.stdout.write(
-  '<<<SECOND_OPINION_START>>>\n[fake-opencode ok] review complete\n<<<SECOND_OPINION_END>>>\n'
-);
-process.exit(0);
+if (args.length === 2 && args[0] === 'run' && args[1] === '--help') {
+  const logFile = process.env.FAKE_HELP_LOG;
+  if (logFile) {
+    try {
+      fs.appendFileSync(logFile, args.join('\n') + '\n');
+    } catch {
+      /* best-effort; test will fail on its own assertion if this is missing */
+    }
+  }
+
+  const head = [
+    'opencode run [message..]',
+    '',
+    '  Run OpenCode with a message',
+    '',
+    'Options:',
+    '  -h, --help              Show help',
+    '      --agent string      Agent to use',
+    '      --format choice     Output format (choices: default, json)',
+    '  -m, --model string      Model to use in the format of provider/model',
+  ];
+  const dirLine = '      --dir string        Directory to run in';
+  const mode = process.env.FAKE_OPENCODE_HELP || 'nodir';
+
+  switch (mode) {
+    case 'dir':
+      process.stdout.write([...head, dirLine].join('\n') + '\n');
+      process.exit(0);
+      break;
+    case 'stderr-dir':
+      process.stderr.write([...head, dirLine].join('\n') + '\n');
+      process.exit(0);
+      break;
+    case 'prose-dir':
+      process.stdout.write(
+        [
+          ...head,
+          '',
+          '  Run OpenCode with a message. The --dir option was removed.',
+        ].join('\n') + '\n'
+      );
+      process.exit(0);
+      break;
+    case 'directory-flag':
+      process.stdout.write(
+        [...head, '      --directory string  Directory to run in'].join('\n') +
+          '\n'
+      );
+      process.exit(0);
+      break;
+    case 'alias-long':
+      // Long flag first, short alias after it (cobra/yargs-style aliasing).
+      process.stdout.write(
+        [...head, '  --dir, -d string        Directory to run in'].join('\n') +
+          '\n'
+      );
+      process.exit(0);
+      break;
+    case 'alias-short':
+      // Short alias first, long flag after it.
+      process.stdout.write(
+        [...head, '  -d, --dir string        Directory to run in'].join('\n') +
+          '\n'
+      );
+      process.exit(0);
+      break;
+    case 'error':
+      process.exit(2);
+      break;
+    case 'hang':
+      // Never exits within a test; the caller's probe timeout must kill us.
+      setTimeout(() => process.exit(0), 60_000);
+      break;
+    default:
+      // unset / 'nodir': clean help, no --dir flag line (opencode v2.2.1).
+      process.stdout.write(head.join('\n') + '\n');
+      process.exit(0);
+  }
+} else {
+  const file = process.env.FAKE_ARGV_FILE;
+  if (file) {
+    try {
+      fs.writeFileSync(file, args.join('\n') + '\n');
+    } catch {
+      /* best-effort; test will fail on its own assertion if this is missing */
+    }
+  }
+
+  process.stdout.write(
+    '<<<SECOND_OPINION_START>>>\n[fake-opencode ok] review complete\n<<<SECOND_OPINION_END>>>\n'
+  );
+  process.exit(0);
+}

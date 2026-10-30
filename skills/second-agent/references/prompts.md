@@ -1,6 +1,6 @@
 # Prompt tiers and templates
 
-Composing the prompt well is what makes a "second opinion" useful — the engine needs to know what it's looking at and what you actually want. Pick the tier that fits.
+Composing the prompt well is what makes a "second opinion" useful — the harness needs to know what it's looking at and what you actually want. Pick the tier that fits.
 
 ## Tier A — Specific task / open question (preferred when context exists)
 
@@ -13,15 +13,15 @@ Things worth pasting into the prompt when relevant:
 - Specific questions ("does this preserve invariant X?", "any race condition I missed?")
 - Non-code context: requirements, deadlines, stakeholders, prior incidents
 
-Do not include private chat verbatim if it contains user secrets the user did not intend to share with a third-party engine. Summarize.
+Do not include private chat verbatim if it contains user secrets the user did not intend to share with a third-party harness. Summarize.
 
 ## Tier B — Plain diff/file review with no extra context
 
 Use this when the user just says "review this" with no further detail. Pick a template below and fire. This is the historical behavior — kept so the skill still does something useful when no context is available.
 
-## Tier C — Large change with shell-capable engine
+## Tier C — Large change with shell-capable harness
 
-Use this when the diff is very large (close to the 120KB prompt cap) AND the engine has shell access (codex, claude, copilot in `--unrestricted`, or sandbox engines that allow `git`). Pass `--no-embed` to `review.js`: instead of inlining the diff, it tells the engine to run `git -C <cwd> diff <range>` itself. Lower argv, but only works for engines that can actually shell out — see `troubleshooting.md` for the example and caveats.
+Use this when the diff is very large (close to the 120KB prompt cap) AND the harness has shell access (codex, claude, copilot in `--unrestricted`, or sandbox harnesses that allow `git`). Pass `--no-embed` to `review.js`: instead of inlining the diff, it tells the harness to run `git -C <cwd> diff <range>` itself. Lower argv, but only works for harnesses that can actually shell out — see `troubleshooting.md` for the example and caveats.
 
 ## Tier D — Task delegation, not review (`agent.js`)
 
@@ -31,7 +31,7 @@ Unlike Tiers A–C, `--diff=`/`--file=` here are optional *context* for the task
 
 ## Default templates
 
-These are fallbacks for Tier B. For Tier A, write a bespoke prompt — these templates can be a starting skeleton, but don't force-fit a nuanced question into them. The engine sees your prompt as-is plus the structured-output envelope; everything else is up to you.
+These are fallbacks for Tier B. For Tier A, write a bespoke prompt — these templates can be a starting skeleton, but don't force-fit a nuanced question into them. The harness sees your prompt as-is plus the structured-output envelope; everything else is up to you.
 
 ### Code review (diff or file)
 ```
