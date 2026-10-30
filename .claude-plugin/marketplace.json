@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Multi-harness second agent — delegate reviews, second opinions, or engineering tasks to Gemini, opencode, Codex, Claude Code, Copilot, Qwen, Kilo, agy, cmd, or Cursor; triggers only when another harness is named or /second-agent is invoked explicitly",
-    "version": "4.2.0"
+    "version": "4.3.0"
   },
   "plugins": [
     {
       "name": "second-agent-skill",
       "source": "./",
       "description": "Multi-harness second agent — delegate reviews, second opinions, or tasks to Gemini, opencode, Codex, Claude Code, Copilot, Qwen, Kilo, agy, cmd, Cursor",
-      "version": "4.2.0",
+      "version": "4.3.0",
       "category": "development",
       "keywords": [
         "gemini",

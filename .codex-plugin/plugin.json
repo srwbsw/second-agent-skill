@@ -1,6 +1,6 @@
 {
   "name": "second-agent-skill",
-  "version": "4.2.0",
+  "version": "4.3.0",
   "description": "Multi-harness second agent — delegate code reviews, second opinions, or engineering tasks (write tests, fix bugs, refactor) to Gemini, opencode, Codex, Claude Code, GitHub Copilot, Qwen, Kilo, Antigravity (agy), Command Code (cmd), or Cursor. Triggers only when another harness is named or /second-agent is invoked explicitly.",
   "author": {
     "name": "Sirawit Bongsuwan",
